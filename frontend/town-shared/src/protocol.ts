@@ -267,6 +267,8 @@ export interface ResidentAgentView {
     replaces: number[]
     events: WorldFact[]
   }[]
+  /** 最近几觉的梦，新的在前；没做过梦就没有 */
+  dreams?: { day: number; at: number; text: string; insights: number; let_go: number }[]
 }
 
 /** 小镇当前使用的服务商与模型 */

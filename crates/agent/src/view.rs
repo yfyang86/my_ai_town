@@ -183,6 +183,9 @@ fn recent_results(a: &Actor) -> Vec<protocol::ActionResultView> {
         .collect()
 }
 
+/// 侧栏里最多列最近几觉的梦
+const DREAMS_SHOWN: usize = 5;
+
 /// 最新的有效记忆，同一件事只出现一次；每条附上来源事件的节选。
 fn memory_views(s: &Session, a: &Actor) -> Vec<ResidentMemoryView> {
     let mut memories: Vec<_> = s
@@ -241,6 +244,21 @@ impl ResidentRuntime {
                 .map(|i| interaction::summary(world, i))
                 .collect(),
             memories: memory_views(s, a),
+            dreams: s
+                .memory
+                .dream
+                .dreams
+                .iter()
+                .rev()
+                .take(DREAMS_SHOWN)
+                .map(|d| protocol::ResidentDreamView {
+                    day: d.day.max(0) as u32 + 1,
+                    at: d.at,
+                    text: d.text.clone(),
+                    insights: d.insights.len() as u32,
+                    let_go: d.let_go as u32,
+                })
+                .collect(),
             daily_calls: s.daily.calls,
             daily_limit: self.state().limits.calls_per_day,
             daily_tokens: s.daily.tokens,

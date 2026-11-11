@@ -87,8 +87,9 @@ pub use recording::ReelView;
 pub use resident::{
     ActionResultView, AgentLimitRanges, AgentLimits, AgentState, AgentUsage, AgentWaitView,
     EvidenceSource, GoalStatus, HoldCause, LimitRange, MemoryKind, MemoryStatus, PauseKind,
-    RequestKind, RequestStatus, RequestView, ResidentAgentView, ResidentGoalView,
-    ResidentInteractionView, ResidentMemoryView, ResidentUsage, UsageSummary, WorldHold,
+    RequestKind, RequestStatus, RequestView, ResidentAgentView, ResidentDreamView,
+    ResidentGoalView, ResidentInteractionView, ResidentMemoryView, ResidentUsage, UsageSummary,
+    WorldHold,
 };
 pub use roster::{
     ActivityKind, MemberKind, MovementPhase, MovementView, PlanView, RosterLocale, RosterMember,

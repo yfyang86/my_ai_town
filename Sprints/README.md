@@ -20,6 +20,8 @@ Six sprints, one folder each. Every sprint runs the same loop:
 | 5 | Agent memory | SQLite FTS5 word index (Chinese-capable), importance · recency · relevance ranking, "dreaming" while asleep |
 | 6 | Memory UI, hardening, release | Dreams visible in the memory page, cross-feature regression, docs and wiki brought up to date, `dev` ready for `main` |
 
+**Status (2026-11-11):** all six sprints are merged into `dev`; each `sprint-N/report.md` says what shipped, how it was checked, and what was left. `main` is untouched.
+
 ## Decisions taken with the product owner (2026-11-11)
 
 1. Docs live in the repo: `docs/wiki/` and `Sprints/`; `AGENTS.md` is amended to allow exactly these.

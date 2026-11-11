@@ -105,6 +105,13 @@ fn agent_view() -> ResidentAgentView {
                 }),
             }],
         }],
+        dreams: vec![ResidentDreamView {
+            day: 2,
+            at: 1820.0,
+            text: "我在一座没有门的图书馆里找公告栏。".into(),
+            insights: 1,
+            let_go: 2,
+        }],
         daily_calls: 3,
         daily_limit: 120,
         daily_tokens: 12_000,

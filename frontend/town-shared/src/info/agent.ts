@@ -139,6 +139,27 @@ export function createAgentView(box: HTMLElement) {
     fragment.append(
       ...section('记着的事', view.memories, '还没有记下什么', (memory) => memoryRow(memory, opened))
     )
+    // 睡醒时做的梦：梦见了什么，想明白了几件事、放下了几件事；没做过梦就没有这一栏
+    if (view.dreams?.length)
+      fragment.append(
+        text('h4', '梦'),
+        ...view.dreams.map((dream) => {
+          const row = text('article', '', 'agent-memory')
+          const did = [
+            dream.insights ? `想明白了 ${dream.insights} 件事` : '',
+            dream.let_go ? `放下了 ${dream.let_go} 件事` : '',
+          ].filter(Boolean)
+          row.append(
+            text(
+              'p',
+              [`第 ${dream.day} 天 ${clock(dream.at)} 醒来`, ...did].join(' · '),
+              'agent-memory-meta'
+            ),
+            text('p', dream.text || '这一觉没留下梦。')
+          )
+          return row
+        })
+      )
     box.replaceChildren(fragment)
   }
   clear()
