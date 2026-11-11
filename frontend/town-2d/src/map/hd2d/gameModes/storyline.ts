@@ -106,6 +106,41 @@ export class StorylineLook implements GameModeLook {
       }
       box.append(list)
     }
+    // 正在打或刚打完的遭遇战：第几轮、每块区域里是谁、生命和状态，轮到谁亮着
+    const fight = v.ruleset?.fight
+    if (fight) {
+      const result =
+        fight.outcome === 'won'
+          ? ' · 打赢了'
+          : fight.outcome === 'lost'
+            ? ' · 打输了'
+            : fight.outcome
+              ? ' · 散了'
+              : ` · 第 ${fight.round} 轮`
+      box.append(el('h4', `${fight.title}${result}`))
+      const list = el('ul', '', 'st-fight')
+      fight.zones.forEach((zone, z) => {
+        const here = fight.fighters
+          .map((f, k) => ({ f, k }))
+          .filter(({ f }) => f.zone === z && !f.state?.includes('已退出'))
+        const item = el('li')
+        item.append(el('time', zone))
+        const who = el('span')
+        for (const { f, k } of here) {
+          const tag = el('b', f.name, f.seat ? 'ally' : 'foe')
+          if (fight.turn === k && !fight.outcome) tag.classList.add('turn')
+          if (f.hp <= 0) tag.classList.add('down')
+          who.append(
+            tag,
+            el('small', `${f.hp}/${f.max_hp}${f.state?.length ? ' ' + f.state.join('、') : ''}`)
+          )
+        }
+        if (!here.length) who.append(el('small', '没有人'))
+        item.append(who)
+        list.append(item)
+      })
+      box.append(list)
+    }
     // 开着规则套件：最近掷的几次骰，算式、点数和成败
     const rolls = v.ruleset?.rolls?.slice(-4) ?? []
     if (rolls.length) {

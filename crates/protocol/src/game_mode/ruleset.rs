@@ -62,6 +62,73 @@ pub struct Srd5Sheet {
     /// 专精的技能（熟练加值算两次）：只有游荡者有，要在 skills 里
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub expertise: Vec<String>,
+    /// 手里的武器（data/rules/5e/creatures.json 的 weapons）；不写是拳脚
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weapon: Option<String>,
+    /// 身上的甲；不写是没穿
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub armor: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shield: bool,
+}
+
+/// 节拍上的一场遭遇战：在一个地方、分成几块相邻的区域（按次序排成一线），来的是哪些对手、卷进来的是哪些角色
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorylineEncounter {
+    pub id: String,
+    pub title: String,
+    /// 区域的名字，相邻的挨着写：近身要在同一块，走一步挪到隔壁
+    pub zones: Vec<String>,
+    /// 卷进来的座号；空着是所有人
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub party: Vec<u32>,
+    /// 角色从第几块区域开始（从 0 数）
+    #[serde(default)]
+    pub party_zone: u32,
+    pub foes: Vec<EncounterFoe>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EncounterFoe {
+    /// 哪种生物（data/rules/5e/creatures.json）
+    pub creature: String,
+    /// 在故事里叫什么；不写用生物的名字加编号
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub zone: u32,
+}
+
+/// 名册里一场正在打或刚打完的遭遇战
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FightView {
+    pub title: String,
+    pub round: u32,
+    pub zones: Vec<String>,
+    pub fighters: Vec<FighterView>,
+    /// 轮到谁（fighters 的下标）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<u32>,
+    /// 打完了：won 对手都倒了，lost 角色都倒了或都退了，drawn 拖得太久散了
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FighterView {
+    pub name: String,
+    /// 角色的座号；对手没有
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat: Option<u32>,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub ac: u32,
+    pub zone: u32,
+    /// 此刻的状态：倒地、昏迷、闪避、已退出、死亡……没有就空着
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub state: Vec<String>,
 }
 
 /// 节拍上的一项检定：到了这个节拍就可以试，难度是 dc，可以用 ways 里的任一种办法
@@ -168,4 +235,6 @@ pub struct RulesetView {
     pub sheets: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rolls: Vec<DiceRoll>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fight: Option<FightView>,
 }

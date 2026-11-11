@@ -7,6 +7,7 @@
 //!
 //! 加一个玩法：在这个目录写一个文件，实现 `Rules`；再在下面的 `GameMode`、`each!` 和
 //! `World::set_game_mode` 里各加一项，协议那边在 protocol 的 game_mode 里加对应的类型。
+mod combat;
 mod dice;
 mod srd5;
 mod storyline;

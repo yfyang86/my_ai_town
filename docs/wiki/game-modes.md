@@ -127,6 +127,29 @@ Only one exists: **fifth-edition rules** from SRD 5.1 (`RulesetChoice::Srd5`), i
 | Milestone | `StorylineWhen::Check` | Reached when someone passes; invisible when no ruleset is on |
 | Roll log | `RulesetView.rolls` | Formula, dice, modifier, total, DC, outcome — last 40 |
 
+#### Combat (`game_mode/combat.rs`)
+
+A beat may carry an **encounter**: a title, two to five named zones in a line, the creatures and where they stand, and which seats are drawn in. With a ruleset on, the fight starts when the beat fires and blocks later beats until it ends.
+
+| Piece | Rule here |
+| --- | --- |
+| Data | `data/rules/5e/creatures.json`: ten creatures, nine weapons, four armours, each citing its SRD section |
+| Combatants | Characters fight from their sheet (weapon, armour, shield → attack bonus, damage, AC). **Creatures exist only in the fight** — not on the map, no model calls; they follow simple tactics |
+| Order | Initiative: d20 + Dexterity modifier, once, highest first |
+| A turn | Optionally step to an adjacent zone, then one of: attack, dodge, disengage, dash, help, flee, pass |
+| Reach | Melee needs the same zone; ranged reaches anywhere, with disadvantage if an enemy stands beside you |
+| Leaving a zone | Each enemy there with a melee attack and an unused reaction makes an opportunity attack, unless you disengaged |
+| Attack | d20 + bonus vs. AC; natural 1 misses, natural 20 hits and doubles the damage dice. Advantage against a prone target in melee or after an ally's help; disadvantage against a dodging target |
+| At 0 hit points | A character falls unconscious and rolls a death save each turn: three successes stabilise, three failures kill, a 20 revives at 1. A creature at 0 is out |
+| Ending | Won when no creature stands; lost when no character stands or all have fled; drawn after 20 rounds |
+| Afterwards | Hit points carry on to the rest of the story; survivors at 0 come round with 1. **A character who dies in the fight dies in the world** (the kernel's ordinary death) |
+
+A character's turn has a deadline of 15 game minutes — the same order as a scene turn; with 5 a real model missed four turns in a row. A timed-out turn is a dodge.
+
+`combat.rs` does not touch the world: it takes dice and returns what happened as lines. `storyline.rs` announces them, wakes whoever is up, and applies deaths. That is why a thousand fights can be simulated in a unit test.
+
+Not yet: violence between characters (still refused by `judge`), conditions beyond prone / dodging / unconscious, hit points reflected in the kernel's health meter.
+
 `mode_action check`: `target` is the check id; `with.skill` or `with.ability` picks the way (optional when there is only one; a save's key is `<ability>_save`). Each resident's context lists the checks open to them with *their own* bonus for each way, so the model can choose its best approach or leave it to someone better.
 
 With a ruleset on, `judge` refuses shoving, robbing and stealing: harming someone will go through combat rules. The plan for the rest (combat, magic, rest, progression, a model narrator) is in `Sprints/ruleset-5e/plan.md`.

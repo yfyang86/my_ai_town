@@ -3,6 +3,7 @@
 //! 职业的数据（生命骰、豁免熟练、能挑的技能）在 data/rules/5e/classes.json，编译时带进来。
 //! 现在有检定的全套：技能和属性检定、豁免、优势劣势、对抗、被动检定、帮一把、专精；
 //! 战斗、法术、休息和升级随后面几期加进来。
+use super::combat::{self, Attack, Fight, Member};
 use super::dice::Dice;
 use crate::error::{KernelError, Result};
 use protocol::{Abilities, CheckWay, DiceRoll, Edge, Srd5Sheet, StorylineCheck, ABILITIES, SKILLS};
@@ -158,6 +159,18 @@ pub struct Srd5 {
     /// 有人帮一把的检定 → 被帮的人 → 帮他的人：被帮的人下一次试这项检定有优势，用掉就没了
     #[serde(default)]
     pub helped: BTreeMap<String, BTreeMap<usize, usize>>,
+    /// 每个座位此刻的生命值
+    #[serde(default)]
+    pub hp: Vec<i32>,
+    /// 正在打、或者刚打完还留在画面上的遭遇战
+    #[serde(default)]
+    pub fight: Option<Fight>,
+    /// 战斗里轮到的角色出手的期限（世界分钟）；没在等谁时是 0
+    #[serde(default)]
+    pub fight_until: f64,
+    /// 打赢了的遭遇战
+    #[serde(default)]
+    pub won: Vec<String>,
 }
 
 impl Srd5 {
@@ -220,6 +233,18 @@ impl Srd5 {
                     sheet.skills.len()
                 )));
             }
+            let gear = combat::gear();
+            if sheet
+                .weapon
+                .as_ref()
+                .is_some_and(|w| !gear.weapons.iter().any(|x| x.id == *w))
+                || sheet
+                    .armor
+                    .as_ref()
+                    .is_some_and(|a| !gear.armor.iter().any(|x| x.id == *a))
+            {
+                return Err(bad(format!("{who}：规则里没有这件武器或护甲")));
+            }
             if sheet.expertise.len() > class.expertise
                 || sheet.expertise.iter().any(|e| !sheet.skills.contains(e))
             {
@@ -229,14 +254,20 @@ impl Srd5 {
                 )));
             }
         }
-        Ok(Self {
+        let mut rules = Self {
             sheets: sheets.to_vec(),
             dice: Dice::new(seed),
             rolls: Vec::new(),
             tried: BTreeMap::new(),
             passed: BTreeMap::new(),
             helped: BTreeMap::new(),
-        })
+            hp: Vec::new(),
+            fight: None,
+            fight_until: 0.0,
+            won: Vec::new(),
+        };
+        rules.hp = (0..cast).map(|i| rules.hit_points(i) as i32).collect();
+        Ok(rules)
     }
 
     /// 这个人用这种试法的加值：属性调整值；熟练这项技能、或者职业熟练这项豁免的再加熟练加值；专精的加两次
@@ -267,6 +298,85 @@ impl Srd5 {
         let con = modifier(sheet.abilities.con);
         let later = (sheet.level as i32 - 1) * (die / 2 + 1 + con).max(1);
         (die + con + later).max(1) as u32
+    }
+
+    /// 护甲等级：甲的底数加敏捷调整值（中甲最多加 2，重甲不加），拿盾再加 2
+    pub(super) fn armor_class(&self, seat: usize) -> u32 {
+        let sheet = &self.sheets[seat];
+        let gear = combat::gear();
+        let armor = gear
+            .armor
+            .iter()
+            .find(|a| Some(&a.id) == sheet.armor.as_ref())
+            .or_else(|| gear.armor.iter().find(|a| a.id == "none"));
+        let dex = modifier(sheet.abilities.dex);
+        let (base, dex) = match armor {
+            Some(a) => (a.base as i32, a.dex_cap.map_or(dex, |cap| dex.min(cap))),
+            None => (10, dex),
+        };
+        (base
+            + dex
+            + if sheet.shield {
+                gear.shield_bonus as i32
+            } else {
+                0
+            })
+        .max(1) as u32
+    }
+
+    /// 手里武器的攻击：近身用力量，灵巧或远程的用力量和敏捷里高的；命中加熟练加值，伤害加属性调整值
+    pub(super) fn attack(&self, seat: usize) -> Attack {
+        let sheet = &self.sheets[seat];
+        let gear = combat::gear();
+        let weapon = gear
+            .weapons
+            .iter()
+            .find(|w| Some(&w.id) == sheet.weapon.as_ref())
+            .or_else(|| gear.weapons.iter().find(|w| w.id == "unarmed"));
+        let (strength, dex) = (modifier(sheet.abilities.str), modifier(sheet.abilities.dex));
+        match weapon {
+            Some(w) => {
+                let ability = if w.ranged {
+                    dex
+                } else if w.finesse {
+                    strength.max(dex)
+                } else {
+                    strength
+                };
+                Attack {
+                    name: w.name.clone(),
+                    bonus: ability + proficiency(sheet.level),
+                    dice: w.dice,
+                    plus: ability,
+                    ranged: w.ranged,
+                }
+            }
+            None => Attack {
+                name: "拳脚".into(),
+                bonus: strength + proficiency(sheet.level),
+                dice: (1, 1),
+                plus: strength,
+                ranged: false,
+            },
+        }
+    }
+
+    /// 这个角色参战时带的数
+    pub(super) fn member(&self, seat: usize, name: String) -> Member {
+        Member {
+            name,
+            seat,
+            hp: self.hp[seat],
+            max_hp: self.hit_points(seat) as i32,
+            ac: self.armor_class(seat),
+            attack: self.attack(seat),
+            dex: modifier(self.sheets[seat].abilities.dex),
+        }
+    }
+
+    pub(super) fn trim_rolls(&mut self) {
+        let extra = self.rolls.len().saturating_sub(ROLLS_KEPT);
+        self.rolls.drain(..extra);
     }
 
     /// 角色卡写成一行：「战士 1 级 · 力量 16(+3) 敏捷 12(+1) …… · 熟练：运动、威吓」
@@ -305,10 +415,24 @@ impl Srd5 {
                 skills.join("、")
             )
         };
+        let attack = self.attack(seat);
+        let now = self.hp.get(seat).copied().unwrap_or(0).max(0);
         format!(
-            "{class} {} 级 · 生命 {} · {} · 豁免熟练：{}{trained}",
+            "{class} {} 级 · 生命 {now}/{} · 护甲 {}（{}{}）· {}（{:+} 命中，{}d{}{:+}）· {} · 豁免熟练：{}{trained}",
             sheet.level,
             self.hit_points(seat),
+            self.armor_class(seat),
+            combat::gear()
+                .armor
+                .iter()
+                .find(|a| Some(&a.id) == sheet.armor.as_ref())
+                .map_or("没穿甲", |a| a.name.as_str()),
+            if sheet.shield { "、盾" } else { "" },
+            attack.name,
+            attack.bonus,
+            attack.dice.0,
+            attack.dice.1,
+            attack.plus,
             scores.join(" "),
             saves.join("、")
         )
@@ -463,6 +587,9 @@ mod tests {
             abilities: a,
             skills: skills.iter().map(|s| s.to_string()).collect(),
             expertise: expertise.iter().map(|s| s.to_string()).collect(),
+            weapon: None,
+            armor: None,
+            shield: false,
         };
         let fighter = abilities(16, 12, 14, 10, 13, 8);
         let rogue = abilities(8, 16, 12, 13, 10, 14);

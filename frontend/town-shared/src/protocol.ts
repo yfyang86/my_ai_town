@@ -778,6 +778,42 @@ export interface Srd5Sheet {
   skills?: string[]
   /** 专精的技能（熟练加值算两次）：只有游荡者有，最多两项 */
   expertise?: string[]
+  /** 手里的武器（unarmed、dagger、longsword……）；不写是拳脚 */
+  weapon?: string
+  /** 身上的甲（leather、chain_shirt、chain_mail）；不写是没穿 */
+  armor?: string
+  shield?: boolean
+}
+/** 节拍上的一场遭遇战：几块相邻的区域排成一线，来的对手，卷进来的角色 */
+export interface StorylineEncounter {
+  id: string
+  title: string
+  zones: string[]
+  /** 卷进来的座号；不写是所有人 */
+  party?: number[]
+  /** 角色从第几块区域开始（从 0 数） */
+  party_zone?: number
+  foes: { creature: string; name?: string; zone?: number }[]
+}
+export interface FighterView {
+  name: string
+  /** 角色的座号；对手没有 */
+  seat?: number
+  hp: number
+  max_hp: number
+  ac: number
+  zone: number
+  state?: string[]
+}
+export interface FightView {
+  title: string
+  round: number
+  zones: string[]
+  fighters: FighterView[]
+  /** 轮到谁（fighters 的下标） */
+  turn?: number
+  /** won、lost、drawn */
+  outcome?: string
 }
 /** 试的办法：属性，可以带一项技能；save 是这项属性的豁免 */
 export interface CheckWay {
@@ -831,6 +867,8 @@ export interface RulesetView {
   /** 按座号排，每人的角色卡一行 */
   sheets: string[]
   rolls?: DiceRoll[]
+  /** 正在打或刚打完的遭遇战 */
+  fight?: FightView
 }
 export interface StorylineRole {
   /** 在故事里是谁，公开 */
@@ -855,6 +893,8 @@ export interface StorylineBeat {
   scene?: { speakers: number[]; minutes: number; chars: number }
   /** 这个节拍开出来的检定（开着规则套件才有用） */
   checks?: StorylineCheck[]
+  /** 这个节拍打起来的遭遇战（开着规则套件才打） */
+  encounter?: StorylineEncounter
 }
 export interface StorylineMilestone {
   id: string
@@ -869,6 +909,7 @@ export type StorylineWhen =
   | { kind: 'gather'; place: string; seats?: number[]; count: number }
   | { kind: 'declare'; seats?: number[] }
   | { kind: 'check'; check: string }
+  | { kind: 'encounter'; encounter: string }
 export interface StorylineSeat {
   seat: number
   id: string

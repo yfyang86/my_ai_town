@@ -1,0 +1,34 @@
+{
+  "source": "System Reference Document 5.1, Wizards of the Coast LLC, CC BY 4.0 — see licenses/SRD-5.1.txt",
+  "creatures": [
+    {"id": "bandit", "name": "强盗", "srd": "Monsters > NPCs > Bandit", "ac": 12, "hp": 11, "dex": 12, "attack": {"name": "弯刀", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}},
+    {"id": "guard", "name": "卫兵", "srd": "Monsters > NPCs > Guard", "ac": 16, "hp": 11, "dex": 12, "attack": {"name": "长矛", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}},
+    {"id": "thug", "name": "打手", "srd": "Monsters > NPCs > Thug", "ac": 11, "hp": 32, "dex": 11, "attack": {"name": "钉头锤", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": false}},
+    {"id": "cultist", "name": "邪教徒", "srd": "Monsters > NPCs > Cultist", "ac": 12, "hp": 9, "dex": 12, "attack": {"name": "弯刀", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}},
+    {"id": "goblin", "name": "地精", "srd": "Monsters > Goblin", "ac": 15, "hp": 7, "dex": 14, "attack": {"name": "短弓", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": true}},
+    {"id": "skeleton", "name": "骷髅", "srd": "Monsters > Skeletons > Skeleton", "ac": 13, "hp": 13, "dex": 14, "attack": {"name": "短剑", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": false}},
+    {"id": "zombie", "name": "僵尸", "srd": "Monsters > Zombies > Zombie", "ac": 8, "hp": 22, "dex": 6, "attack": {"name": "重击", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}},
+    {"id": "wolf", "name": "狼", "srd": "Monsters > Miscellaneous Creatures > Wolf", "ac": 13, "hp": 11, "dex": 15, "attack": {"name": "啃咬", "bonus": 4, "dice": [2, 4], "plus": 2, "ranged": false}},
+    {"id": "giant_rat", "name": "巨鼠", "srd": "Monsters > Miscellaneous Creatures > Giant Rat", "ac": 12, "hp": 7, "dex": 15, "attack": {"name": "啃咬", "bonus": 4, "dice": [1, 4], "plus": 2, "ranged": false}},
+    {"id": "mastiff", "name": "獒犬", "srd": "Monsters > Miscellaneous Creatures > Mastiff", "ac": 12, "hp": 5, "dex": 14, "attack": {"name": "啃咬", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}}
+  ],
+  "weapons": [
+    {"id": "unarmed", "name": "拳脚", "srd": "Combat > Making an Attack > Melee Attacks (unarmed strike)", "dice": [1, 1], "finesse": false, "ranged": false},
+    {"id": "dagger", "name": "匕首", "srd": "Equipment > Weapons > Dagger", "dice": [1, 4], "finesse": true, "ranged": false},
+    {"id": "quarterstaff", "name": "长棍", "srd": "Equipment > Weapons > Quarterstaff", "dice": [1, 6], "finesse": false, "ranged": false},
+    {"id": "mace", "name": "钉头锤", "srd": "Equipment > Weapons > Mace", "dice": [1, 6], "finesse": false, "ranged": false},
+    {"id": "handaxe", "name": "手斧", "srd": "Equipment > Weapons > Handaxe", "dice": [1, 6], "finesse": false, "ranged": false},
+    {"id": "shortsword", "name": "短剑", "srd": "Equipment > Weapons > Shortsword", "dice": [1, 6], "finesse": true, "ranged": false},
+    {"id": "longsword", "name": "长剑", "srd": "Equipment > Weapons > Longsword", "dice": [1, 8], "finesse": false, "ranged": false},
+    {"id": "shortbow", "name": "短弓", "srd": "Equipment > Weapons > Shortbow", "dice": [1, 6], "finesse": true, "ranged": true},
+    {"id": "light_crossbow", "name": "轻弩", "srd": "Equipment > Weapons > Crossbow, light", "dice": [1, 8], "finesse": true, "ranged": true}
+  ],
+  "armor": [
+    {"id": "none", "name": "没穿甲", "srd": "Equipment > Armor (unarmored)", "base": 10, "dex_cap": null},
+    {"id": "leather", "name": "皮甲", "srd": "Equipment > Armor > Light Armor > Leather", "base": 11, "dex_cap": null},
+    {"id": "chain_shirt", "name": "链甲衫", "srd": "Equipment > Armor > Medium Armor > Chain shirt", "base": 13, "dex_cap": 2},
+    {"id": "chain_mail", "name": "链甲", "srd": "Equipment > Armor > Heavy Armor > Chain mail", "base": 16, "dex_cap": 0}
+  ],
+  "shield_bonus": 2,
+  "shield_srd": "Equipment > Armor > Shields"
+}

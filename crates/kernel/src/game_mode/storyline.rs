@@ -5,6 +5,7 @@
 //! 里程碑有三种算法：某个节拍发生了；几个人同时在某个地点；有人用 declare 宣布它发生了并写上经过。
 //! 到了收场的时刻，把达成和没达成的里程碑说一遍，一局结束。
 //! 和执剑人之夜一样：只叫醒该做事的人，别人的话写进每个人的经历；期限按游戏分钟，挂在 boundary 上。
+use super::combat::{self, Deed, Fight, Order, Outcome};
 use super::srd5::{self, Srd5};
 use super::Rules;
 use crate::error::{KernelError, Result};
@@ -15,7 +16,7 @@ use protocol::{
     StorylineContext, StorylineLine, StorylineMilestoneView, StorylineScript, StorylineSeat,
     StorylineView, StorylineWhen,
 };
-use protocol::{CheckWay, Edge};
+use protocol::{CheckWay, DeathCause, Edge, EventActor, Killing};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -43,6 +44,9 @@ const EPS: f64 = 1e-6;
 const BEAT_CHECKS: usize = 6;
 const CHECK_WAYS: usize = 4;
 const CHECK_EDGES: usize = 4;
+/// 战斗里轮到的角色有多久出手（游戏分钟）；到点没交算闪避。和戏里说话的期限一个量级：
+/// 真模型想一回合要十几秒，5 分钟时一个人连着四回合没赶上
+const FIGHT_TURN_MINUTES: f64 = 15.0;
 
 fn clip(text: &str, n: usize) -> (String, bool) {
     let text = text.trim();
@@ -131,6 +135,7 @@ pub(super) fn check(script: &StorylineScript) -> Result<()> {
     }
     let mut ids = BTreeSet::new();
     let mut checks = BTreeSet::new();
+    let mut fights = BTreeSet::new();
     // 检定的优势劣势指着的里程碑：等里程碑都看过了再对
     let mut edge_marks: Vec<(String, String)> = Vec::new();
     let mut last = 0u32;
@@ -238,6 +243,15 @@ pub(super) fn check(script: &StorylineScript) -> Result<()> {
                 }
             }
         }
+        if let Some(enc) = &b.encounter {
+            combat::check(enc, cast)?;
+            if !is_id(&enc.id) || !fights.insert(enc.id.as_str()) {
+                return Err(bad(format!(
+                    "遭遇战「{}」的编号要用小写字母、数字、连字符，而且不能重复",
+                    enc.id
+                )));
+            }
+        }
         if b.checks.len() > BEAT_CHECKS {
             return Err(bad(format!("{what}上的检定最多 {BEAT_CHECKS} 项")));
         }
@@ -286,6 +300,11 @@ pub(super) fn check(script: &StorylineScript) -> Result<()> {
             StorylineWhen::Check { check } => {
                 if !checks.contains(check.as_str()) {
                     return Err(bad(format!("{what}指的检定「{check}」不在剧本里")));
+                }
+            }
+            StorylineWhen::Encounter { encounter } => {
+                if !fights.contains(encounter.as_str()) {
+                    return Err(bad(format!("{what}指的遭遇战「{encounter}」不在剧本里")));
                 }
             }
         }
@@ -540,6 +559,12 @@ impl Storyline {
     /// 节拍到点：所有人听到宣布，和它有关的人被叫醒、听到叮嘱；有戏就开戏。
     fn fire(&mut self, world: &mut World, i: usize) {
         self.next = i + 1;
+        // 上一场打完的遭遇战留在画面上到这里为止
+        if let Some(rules) = &mut self.rules {
+            if rules.fight.as_ref().is_some_and(|f| f.outcome.is_some()) {
+                rules.fight = None;
+            }
+        }
         let b = self.script.beats[i].clone();
         let place = b
             .place
@@ -579,6 +604,7 @@ impl Storyline {
             self.reach(world, &id, now, None, None);
         }
         self.notice(world, i);
+        self.begin_fight(world, i);
         if let Some(scene) = &b.scene {
             self.scene = Some(Scene {
                 beat: i,
@@ -733,6 +759,15 @@ impl Storyline {
             return false;
         }
         let now = world.minutes() + EPS;
+        // 遭遇战没打完时后面的事都等着；轮到的角色到点没交就替他闪避
+        if self.fighting() {
+            let until = self.rules.as_ref().map_or(0.0, |r| r.fight_until);
+            if now < until {
+                return false;
+            }
+            self.fight_timeout(world);
+            return true;
+        }
         if let Some(scene) = &self.scene {
             if now < scene.until {
                 return false;
@@ -773,6 +808,11 @@ impl Storyline {
             let text = format!("{}{} 不在了。", self.tag(), self.label(i));
             self.tell(world, &self.everyone(), &text);
             world.log(EventInfo::default(), text);
+            if let Some(fight) = self.rules.as_mut().and_then(|r| r.fight.as_mut()) {
+                if let Some(f) = fight.fighters.iter_mut().find(|f| f.seat == Some(i)) {
+                    f.fled = true;
+                }
+            }
             if let Some(scene) = &mut self.scene {
                 if scene.turn == Some(i) {
                     scene.turn = None;
@@ -786,7 +826,11 @@ impl Storyline {
 
     /// 这个里程碑此刻算不算数：靠检定达成的要开着规则套件才有，没开时哪里都不出现
     fn tracked(&self, m: &protocol::StorylineMilestone) -> bool {
-        self.rules.is_some() || !matches!(m.when, StorylineWhen::Check { .. })
+        self.rules.is_some()
+            || !matches!(
+                m.when,
+                StorylineWhen::Check { .. } | StorylineWhen::Encounter { .. }
+            )
     }
 
     /// 这个人能宣布的、还没达成的里程碑
@@ -1302,6 +1346,317 @@ impl Storyline {
         }
     }
 
+    // ---------- 遭遇战（开着规则套件才有） ----------
+
+    /// 对所有人说一句、记进世界日志；不叫醒谁。
+    fn say(&self, world: &mut World, line: &str) {
+        let text = format!("{}{line}", self.tag());
+        self.tell(world, &self.everyone(), &text);
+        world.log(EventInfo::default(), text);
+    }
+
+    fn fighting(&self) -> bool {
+        self.rules
+            .as_ref()
+            .and_then(|r| r.fight.as_ref())
+            .is_some_and(|f| f.outcome.is_none())
+    }
+
+    /// 这个人在正打着的遭遇战里是第几个（fighters 的下标）
+    fn fighter_of(&self, i: usize) -> Option<usize> {
+        let fight = self.rules.as_ref()?.fight.as_ref()?;
+        fight.fighters.iter().position(|f| f.seat == Some(i))
+    }
+
+    /// 节拍到点打起来：卷进来的、还在场的角色照角色卡参战，对手照剧本摆好，各掷先攻。
+    fn begin_fight(&mut self, world: &mut World, beat: usize) {
+        let Some(enc) = self.script.beats[beat].encounter.clone() else {
+            return;
+        };
+        let seats: Vec<usize> = self
+            .among(&enc.party)
+            .into_iter()
+            .filter(|&i| self.here(world, i))
+            .collect();
+        let names: Vec<String> = seats.iter().map(|&i| self.seats[i].name.clone()).collect();
+        let Some(rules) = &mut self.rules else {
+            return;
+        };
+        if seats.is_empty() {
+            return;
+        }
+        let members = seats
+            .iter()
+            .zip(names)
+            .filter(|(i, _)| rules.hp[**i] > 0)
+            .map(|(&i, name)| rules.member(i, name))
+            .collect();
+        let fight = Fight::open(&enc, members, &mut rules.dice);
+        let order: Vec<String> = fight
+            .order
+            .iter()
+            .map(|&k| fight.fighters[k].name.clone())
+            .collect();
+        let foes: Vec<String> = fight
+            .fighters
+            .iter()
+            .filter(|f| f.seat.is_none())
+            .map(|f| format!("{}（{}）", f.name, fight.zones[f.zone]))
+            .collect();
+        let opening = format!(
+            "遭遇战「{}」打起来了！场地：{}。对手：{}。先攻次序：{}。",
+            fight.title,
+            fight.zones.join(" — "),
+            foes.join("、"),
+            order.join("、")
+        );
+        rules.fight = Some(fight);
+        rules.fight_until = 0.0;
+        self.say(world, &opening);
+        self.drive_fight(world);
+    }
+
+    /// 把战斗往下推：对手和动不了的人的回合当场走完，轮到一个能动的角色就叫醒他、等他交；打完了就收场。
+    fn drive_fight(&mut self, world: &mut World) {
+        let now = world.minutes();
+        for _ in 0..400 {
+            let Some(rules) = &mut self.rules else {
+                return;
+            };
+            let Some(fight) = &mut rules.fight else {
+                return;
+            };
+            let Some(i) = fight.up() else {
+                return self.end_fight(world);
+            };
+            let (mut lines, can) = fight.start_turn(i, &mut rules.dice, &mut rules.rolls, now);
+            let seat = fight.fighters[i].seat;
+            let waiting = match seat {
+                Some(seat) if can => Some(seat),
+                _ => {
+                    if can {
+                        lines.extend(fight.foe_turn(i, &mut rules.dice, &mut rules.rolls, now));
+                    }
+                    fight.end_turn();
+                    None
+                }
+            };
+            let brief = waiting.map(|_| fight.brief(i));
+            if waiting.is_some() {
+                rules.fight_until = now + FIGHT_TURN_MINUTES;
+            }
+            rules.trim_rolls();
+            for line in &lines {
+                self.say(world, line);
+            }
+            if let (Some(seat), Some(brief)) = (waiting, brief) {
+                let text = format!(
+                    "{}轮到你出手！{}\n用 mode_action 交一项：attack 攻击（target 填对手的编号）、dodge 闪避、disengage 撤步、\
+dash 冲刺、help 帮同伴（target 填他的座号）、flee 退出战斗、pass 不出手；要先走一步就在 with 里填 move（区域的名字或第几块）。\
+{FIGHT_TURN_MINUTES:.0} 分钟内不交算闪避。",
+                    self.tag(),
+                    brief.join("\n")
+                );
+                self.call(world, seat, &text);
+                return;
+            }
+        }
+    }
+
+    /// 打完了：胜负说一遍；倒下没死的缓过来剩 1 点生命，死了的在世界里真的死去；打赢了的里程碑达成。
+    fn end_fight(&mut self, world: &mut World) {
+        let now = world.minutes();
+        let Some(rules) = &mut self.rules else {
+            return;
+        };
+        let Some(fight) = &mut rules.fight else {
+            return;
+        };
+        rules.fight_until = 0.0;
+        let outcome = fight.outcome;
+        let mut dead = Vec::new();
+        let mut woke = Vec::new();
+        for f in &mut fight.fighters {
+            let Some(seat) = f.seat else {
+                continue;
+            };
+            if f.dead {
+                rules.hp[seat] = 0;
+                dead.push(seat);
+            } else {
+                if f.hp <= 0 {
+                    f.hp = 1;
+                    f.prone = false;
+                    woke.push(f.name.clone());
+                }
+                rules.hp[seat] = f.hp;
+            }
+        }
+        let (id, title) = (fight.id.clone(), fight.title.clone());
+        let won = outcome == Some(Outcome::Won);
+        if won {
+            rules.won.push(id.clone());
+        }
+        let mut line = format!(
+            "遭遇战「{title}」结束：{}。",
+            match outcome {
+                Some(Outcome::Won) => "对手都倒下了，打赢了",
+                Some(Outcome::Lost) => "站着的人都倒下或退走了，打输了",
+                _ => "拖得太久，双方散开了",
+            }
+        );
+        if !woke.is_empty() {
+            line.push_str(&format!("{} 缓了过来，剩 1 点生命。", woke.join("、")));
+        }
+        self.say(world, &line);
+        for seat in dead {
+            self.kill(world, seat, &title);
+        }
+        if won {
+            let done: Vec<String> = self
+                .script
+                .milestones
+                .iter()
+                .filter(
+                    |m| matches!(&m.when, StorylineWhen::Encounter { encounter } if *encounter == id),
+                )
+                .map(|m| m.id.clone())
+                .collect();
+            for m in done {
+                self.reach(world, &m, now, None, None);
+            }
+        }
+    }
+
+    /// 在战斗里死了的角色在世界里也死去：健康归零，按遇害结算。
+    fn kill(&self, world: &mut World, i: usize, fight: &str) {
+        let id = self.seats[i].id.clone();
+        let Some(a) = world.actor(&id) else {
+            return;
+        };
+        if !a.present() || a.needs.body.dead {
+            return;
+        }
+        let was = a.needs.abilities();
+        world.actor_mut(&id).needs.lose_health(100.0);
+        world.reconcile_body(
+            &id,
+            was,
+            fight,
+            DeathCause {
+                killed: Some(Killing {
+                    by: EventActor {
+                        id: format!("storyline:{}", self.seed),
+                        name: fight.into(),
+                    },
+                    wound: "在战斗里倒下，没撑过来".into(),
+                }),
+                ..DeathCause::default()
+            },
+        );
+    }
+
+    /// 轮到的角色交的一回合。
+    fn fight_turn(
+        &mut self,
+        world: &mut World,
+        i: usize,
+        action: &GameModeAction,
+    ) -> Result<String> {
+        let me = self.fighter_of(i).ok_or_else(|| bad("你不在这场战斗里"))?;
+        let now = world.minutes();
+        let said = action
+            .text
+            .as_deref()
+            .map(|t| clip(t, EVIDENCE_CHARS).0)
+            .filter(|t| !t.is_empty());
+        let Some(rules) = &mut self.rules else {
+            return Err(bad("这个故事没有开规则"));
+        };
+        let Some(fight) = &mut rules.fight else {
+            return Err(bad("现在没有在打的遭遇战"));
+        };
+        if fight.up() != Some(me) {
+            return Err(bad("还没轮到你出手"));
+        }
+        let here = fight.fighters[me].zone;
+        let mut move_to =
+            match action.with.get("move") {
+                Some(raw) => Some(fight.zone(raw).ok_or_else(|| {
+                    bad(format!("认不出区域「{raw}」：{}", fight.zones.join("、")))
+                })?),
+                None => None,
+            };
+        let target = || -> Result<usize> {
+            let raw = action.target.as_deref().unwrap_or("");
+            fight.find(raw).ok_or_else(|| {
+                bad(format!(
+                    "认不出 target「{raw}」：看 storyline.fight 里的编号"
+                ))
+            })
+        };
+        let deed = match action.action.as_str() {
+            "attack" => Deed::Attack(target()?),
+            "help" => Deed::Help(target()?),
+            "dodge" => Deed::Dodge,
+            "disengage" => Deed::Disengage,
+            "flee" => Deed::Flee,
+            "pass" => Deed::Pass,
+            "dash" => {
+                // 冲刺：with.move 填要到的那块，隔一块的中间那一步自动走
+                let to = move_to.ok_or_else(|| bad("冲刺要在 with 里填 move：要到的区域"))?;
+                move_to = match to.abs_diff(here) {
+                    1 => None,
+                    2 => Some((to + here) / 2),
+                    _ => return Err(bad("冲刺最多走两步")),
+                };
+                Deed::Dash(to)
+            }
+            other => {
+                return Err(bad(format!(
+                "战斗里没有「{other}」：能交的是 attack、dodge、disengage、dash、help、flee、pass"
+            )))
+            }
+        };
+        let order = Order { move_to, deed };
+        let mut lines = fight.party_turn(me, &order, &mut rules.dice, &mut rules.rolls, now)?;
+        if let Some(said) = said {
+            lines.insert(0, format!("{}：「{said}」", fight.fighters[me].name));
+        }
+        fight.end_turn();
+        rules.fight_until = 0.0;
+        rules.trim_rolls();
+        for line in &lines {
+            self.say(world, line);
+        }
+        self.drive_fight(world);
+        Ok(lines.join("；"))
+    }
+
+    /// 轮到的角色到点没交：只顾着闪避。
+    fn fight_timeout(&mut self, world: &mut World) {
+        let now = world.minutes();
+        let Some(rules) = &mut self.rules else {
+            return;
+        };
+        let Some(fight) = &mut rules.fight else {
+            return;
+        };
+        let Some(me) = fight.up() else {
+            return;
+        };
+        let order = Order {
+            move_to: None,
+            deed: Deed::Dodge,
+        };
+        let name = fight.fighters[me].name.clone();
+        let _ = fight.party_turn(me, &order, &mut rules.dice, &mut rules.rolls, now);
+        fight.end_turn();
+        rules.fight_until = 0.0;
+        self.say(world, &format!("{name} 没来得及出手，只顾着闪避。"));
+        self.drive_fight(world);
+    }
+
     fn declare(&mut self, world: &mut World, i: usize, action: &GameModeAction) -> Result<String> {
         let open = self.declarable(i);
         if open.is_empty() {
@@ -1338,6 +1693,7 @@ impl Rules for Storyline {
         }
         let now = world.minutes();
         let due = match &self.scene {
+            _ if self.fighting() => self.rules.as_ref().map_or(now, |r| r.fight_until),
             Some(scene) => scene.until,
             None if self.next < self.script.beats.len() => self.beat_at(self.next),
             None => self.end_at(),
@@ -1351,7 +1707,7 @@ impl Rules for Storyline {
     }
 
     fn tempo(&self, _world: &World) -> f64 {
-        if self.scene.is_some() || self.ended {
+        if self.scene.is_some() || self.ended || self.fighting() {
             1.0
         } else {
             FREE_TEMPO
@@ -1461,6 +1817,7 @@ impl Rules for Storyline {
                 id: "srd5".into(),
                 sheets: (0..self.seats.len()).map(|i| r.sheet_line(i)).collect(),
                 rolls: r.rolls.clone(),
+                fight: r.fight.as_ref().map(Fight::view),
             }),
         })
     }
@@ -1486,6 +1843,26 @@ impl Rules for Storyline {
                 )
             })
             .collect();
+        let fight = self
+            .rules
+            .as_ref()
+            .and_then(|r| r.fight.as_ref())
+            .filter(|f| f.outcome.is_none());
+        let me = self.fighter_of(i);
+        let fight_turn = fight.is_some_and(|f| me.is_some() && f.up() == me);
+        let fight_lines = match (fight, me) {
+            (Some(f), Some(me)) => {
+                let mut lines = f.brief(me);
+                lines.push(match f.up() {
+                    Some(k) if k == me => "轮到你出手。".to_string(),
+                    Some(k) => format!("现在轮到 {}，轮到你时会叫你。", f.fighters[k].name),
+                    None => String::new(),
+                });
+                lines
+            }
+            (Some(f), None) => vec![format!("「{}」正在打，你不在里面。", f.title)],
+            _ => vec![],
+        };
         let mut actions = Vec::new();
         if !self.ended && !self.seats[i].gone {
             if self.scene.as_ref().is_some_and(|s| s.turn == Some(i)) {
@@ -1496,6 +1873,19 @@ impl Rules for Storyline {
             }
             if !self.open_checks(i).is_empty() {
                 actions.extend(["check".to_string(), "help".to_string()]);
+            }
+            if fight_turn {
+                actions = [
+                    "attack",
+                    "dodge",
+                    "disengage",
+                    "dash",
+                    "help",
+                    "flee",
+                    "pass",
+                ]
+                .map(str::to_string)
+                .to_vec();
             }
         }
         let skip = self.lines.len().saturating_sub(RECENT_LINES);
@@ -1532,6 +1922,7 @@ impl Rules for Storyline {
                     .collect(),
                 _ => vec![],
             },
+            fight: fight_lines,
         }))
     }
 
@@ -1555,7 +1946,11 @@ check 试一项检定（target 填检定的编号；有几种办法时在 with �
 除了写着可以再试的，每项检定每人只能试一次，所以挑你拿手的办法，或者让更拿手的人去试。\
 有优势时掷两次取高的，有劣势时取低的。help 帮一把（target 填检定的编号，with 里填 seat：对方的座号）：\
 你自己不试这一项，和你在同一个地方的那个人下一次试它有优势。\
-开着规则时不能直接对人推搡、抢、偷。"
+开着规则时不能直接对人推搡、抢、偷。\
+剧本里打起来的遭遇战按先攻轮流出手：轮到你时 storyline.fight 写着战况和每个人的编号，\
+attack 攻击（target 填对手的编号）、dodge 闪避（打你的有劣势）、disengage 撤步（走开不挨借机攻击）、\
+dash 冲刺（with 里填 move：要到的区域）、help 帮同伴（target 填座号，他下一次攻击有优势）、flee 退出战斗、pass 不出手；\
+别的动作要先走一步就在 with 里填 move。近身要和对手在同一块区域；生命归零会倒下昏迷，可能死去。"
             )
         } else {
             base.to_string()
@@ -1583,6 +1978,18 @@ check 试一项检定（target 填检定的编号；有几种办法时在 with �
         }
         if self.seats[i].gone {
             return Err(bad("你已经不在这个故事里了"));
+        }
+        // 正打着遭遇战、轮到这个人：交的是战斗里的一回合
+        let my_turn = self.fighting()
+            && self.fighter_of(i).is_some()
+            && self
+                .rules
+                .as_ref()
+                .and_then(|r| r.fight.as_ref())
+                .and_then(Fight::up)
+                == self.fighter_of(i);
+        if my_turn {
+            return self.fight_turn(world, i, action);
         }
         match action.action.as_str() {
             "speak" | "pass" => self.speak(world, i, action),

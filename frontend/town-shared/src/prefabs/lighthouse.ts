@@ -115,21 +115,29 @@ const sheet = (
   cls: string,
   [str, dex, con, int, wis, cha]: number[],
   skills: string[],
-  expertise: string[] = []
+  gear: Pick<Srd5Sheet, 'weapon' | 'armor' | 'shield' | 'expertise'> = {}
 ): Srd5Sheet => ({
   class: cls,
   level: 1,
   abilities: { str, dex, con, int, wis, cha },
   skills,
-  ...(expertise.length && { expertise }),
+  ...gear,
 })
 const SHEETS: Srd5Sheet[] = [
-  sheet('fighter', [14, 10, 15, 10, 14, 8], ['athletics', 'survival']),
-  sheet('rogue', [8, 12, 12, 14, 10, 16], ['deception', 'persuasion'], ['deception']),
-  sheet('fighter', [16, 13, 14, 8, 12, 10], ['athletics', 'intimidation']),
+  sheet('fighter', [14, 10, 15, 10, 14, 8], ['athletics', 'survival'], { weapon: 'quarterstaff' }),
+  sheet('rogue', [8, 12, 12, 14, 10, 16], ['deception', 'persuasion'], {
+    expertise: ['deception'],
+    weapon: 'dagger',
+  }),
+  sheet('fighter', [16, 13, 14, 8, 12, 10], ['athletics', 'intimidation'], {
+    weapon: 'handaxe',
+    armor: 'leather',
+  }),
   sheet('wizard', [8, 12, 10, 15, 13, 15], ['persuasion', 'insight']),
-  sheet('cleric', [10, 10, 13, 12, 16, 13], ['insight', 'perception']),
-  sheet('rogue', [10, 15, 12, 14, 13, 8], ['investigation', 'sleight_of_hand']),
+  sheet('cleric', [10, 10, 13, 12, 16, 13], ['insight', 'perception'], { weapon: 'mace' }),
+  sheet('rogue', [10, 15, 12, 14, 13, 8], ['investigation', 'sleight_of_hand'], {
+    weapon: 'dagger',
+  }),
 ]
 
 const script: StorylineScript = {
@@ -285,6 +293,18 @@ const script: StorylineScript = {
           edges: [{ effect: 'advantage', reason: '有人在旁边照着亮', milestone: 'gathered' }],
         },
       ],
+      // 开着规则时：上塔的石阶上窜出两条饿急了的野狗，在灯塔的人都被卷进来
+      encounter: {
+        id: 'strays',
+        title: '石阶上的野狗',
+        zones: ['塔下', '石阶', '灯室'],
+        party: [1, 6],
+        party_zone: 0,
+        foes: [
+          { creature: 'mastiff', name: '黑狗', zone: 1 },
+          { creature: 'mastiff', name: '瘸狗', zone: 1 },
+        ],
+      },
     },
   ],
   milestones: [
@@ -324,6 +344,12 @@ const script: StorylineScript = {
       title: '镇长被问住了',
       detail: '有人当面逼问，镇长圆不过去',
       when: { kind: 'check', check: 'press' },
+    },
+    {
+      id: 'cleared',
+      title: '赶走了野狗',
+      detail: '石阶上的野狗被打退了',
+      when: { kind: 'encounter', encounter: 'strays' },
     },
     {
       id: 'lit',
@@ -397,7 +423,7 @@ export const lighthouse: Prefab = {
         {
           value: 'srd5',
           label: '第五版规则',
-          hint: '每人一张角色卡；说动人、看懂账、点着灯要掷 d20 检定',
+          hint: '每人一张角色卡；说动人、看懂账要掷 d20 检定，夜里上塔还有一场架要打',
         },
       ],
       initial: 'none',

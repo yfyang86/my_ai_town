@@ -13,7 +13,7 @@ use protocol::{
     SwordholderRules, SwordholderView, TideCircle, TideFlare, TideNewsKind, TidePhase, TideView,
     WerewolfOut, WerewolfPhase, WerewolfRole, WerewolfSide, WerewolfView,
 };
-use protocol::{CheckContest, CheckEdge, Edge};
+use protocol::{CheckContest, CheckEdge, Edge, EncounterFoe, StorylineEncounter};
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -739,6 +739,7 @@ fn lighthouse_script() -> StorylineScript {
             brief: None,
             scene: None,
             checks: vec![],
+            encounter: None,
         };
     let milestone = |id: &str, title: &str, when: StorylineWhen, secret: bool| StorylineMilestone {
         id: id.into(),
@@ -1001,6 +1002,9 @@ fn sheet(class: &str, scores: [u32; 6], skills: &[&str]) -> Srd5Sheet {
         },
         skills: skills.iter().map(|s| s.to_string()).collect(),
         expertise: vec![],
+        weapon: None,
+        armor: None,
+        shield: false,
     }
 }
 
@@ -1166,11 +1170,9 @@ fn storyline_with_fifth_edition_rules_resolves_scripted_checks_with_dice() {
     assert!(w.game_mode_takes_params());
     assert!(w.game_mode_tool("r1").unwrap().contains("check"));
     let c = story_context(&w, "r1");
-    assert!(c
-        .sheet
-        .as_deref()
-        .unwrap()
-        .starts_with("战士 1 级 · 生命 12 · 力量 16(+3)"));
+    assert!(c.sheet.as_deref().unwrap().starts_with(
+        "战士 1 级 · 生命 12/12 · 护甲 11（没穿甲）· 拳脚（+5 命中，1d1+3）· 力量 16(+3)"
+    ));
     assert!(c.checks.is_empty(), "节拍还没到，没有检定可试");
 
     w.step(1.1 * HOUR);
@@ -1444,6 +1446,237 @@ fn fifth_edition_checks_cover_passive_saves_contests_edges_and_help() {
     assert_eq!(rolls(&w), rolls(&copy));
     w.set_game_mode(None).unwrap();
     no_trace(&w);
+}
+
+fn fight_act(
+    w: &mut World,
+    id: &str,
+    action: &str,
+    target: Option<&str>,
+    step: Option<&str>,
+) -> Result<String, String> {
+    let action = GameModeAction {
+        action: action.into(),
+        target: target.map(str::to_owned),
+        text: None,
+        reason: None,
+        with: step
+            .into_iter()
+            .map(|zone| ("move".to_string(), zone.to_string()))
+            .collect(),
+    };
+    w.game_mode_act(id, &action).map_err(|e| e.to_string())
+}
+
+/// 剧本里的遭遇战：节拍到点打起来，按先攻轮流；对手自己动，轮到角色才叫他；够不着的退回去、不算用掉；
+/// 到点没交算闪避；打着的时候后面的节拍等着；打到一半存档读档接着打一样；打赢了里程碑达成、生命留到以后。
+/// 同伴还站着时倒下的角色掷死亡豁免：撑不过去的在世界里真的死去，撑过去的打完缓过来剩 1 点。
+/// 不开规则时同一本剧本不打。
+#[test]
+fn fifth_edition_encounters_run_by_initiative_and_can_kill() {
+    let people = [
+        ("r1", "阿塔", "loc_a"),
+        ("r2", "老镇", "loc_a"),
+        ("r3", "阿渔", "loc_a"),
+        ("r4", "远客", "loc_a"),
+    ];
+    let fresh = || common::world_with(common::tiny_topology(), 7.0 * HOUR, &people);
+    let encounter = |party: &[u32], foes: &[(&str, u32)]| StorylineEncounter {
+        id: "ambush".into(),
+        title: "栈桥伏击".into(),
+        zones: vec!["码头".into(), "栈桥".into()],
+        party: party.to_vec(),
+        party_zone: 0,
+        foes: foes
+            .iter()
+            .map(|(creature, zone)| EncounterFoe {
+                creature: (*creature).into(),
+                name: None,
+                zone: *zone,
+            })
+            .collect(),
+    };
+    let script = |enc: StorylineEncounter| {
+        let mut script = lighthouse_script();
+        script.beats[0].encounter = Some(enc);
+        script.milestones.push(StorylineMilestone {
+            id: "survived".into(),
+            title: "打退了伏击".into(),
+            detail: "栈桥上的伏击打赢了".into(),
+            when: StorylineWhen::Encounter {
+                encounter: "ambush".into(),
+            },
+            secret: false,
+        });
+        script
+    };
+    let armed = || {
+        let mut sheets = lighthouse_sheets();
+        sheets[0].weapon = Some("longsword".into());
+        sheets[0].armor = Some("chain_mail".into());
+        sheets[0].shield = true;
+        sheets[1].weapon = Some("shortsword".into());
+        sheets[2].weapon = Some("mace".into());
+        sheets
+    };
+    let open = |w: &mut World, script: &StorylineScript, seed: u32, rules: bool| {
+        w.set_game_mode(Some(&GameModeChoice::Storyline {
+            seed: Some(seed),
+            script: Box::new(script.clone()),
+            ruleset: rules.then(|| RulesetChoice::Srd5 { sheets: armed() }),
+        }))
+    };
+    let fight = |w: &World| storyline(w).ruleset.and_then(|r| r.fight);
+    let turn_of = |w: &World| {
+        ["r1", "r2", "r3", "r4"]
+            .into_iter()
+            .find(|id| story_context(w, id).actions.contains(&"attack".to_string()))
+    };
+
+    // 不开规则：不打，靠打赢达成的里程碑哪里都不出现
+    // 一个地精（远程，守在栈桥上不动）和一个僵尸（慢慢走过来）
+    let rat = script(encounter(&[1, 2, 3], &[("goblin", 1), ("zombie", 1)]));
+    let mut plain = fresh();
+    open(&mut plain, &rat, 3, false).unwrap();
+    plain.step(1.1 * HOUR);
+    assert!(storyline(&plain).ruleset.is_none());
+    assert!(storyline(&plain)
+        .milestones
+        .iter()
+        .all(|m| m.id != "survived"));
+    // 规则里没有的生物、没有的武器：开不了
+    let mut w = fresh();
+    assert!(open(&mut w, &script(encounter(&[], &[("dragon", 1)])), 3, true).is_err());
+    assert!(w.game_mode().is_none());
+
+    open(&mut w, &rat, 3, true).unwrap();
+    assert!(story_context(&w, "r1")
+        .sheet
+        .unwrap()
+        .contains("护甲 18（链甲、盾）· 长剑（+5 命中，1d8+3）"));
+    w.step(1.1 * HOUR);
+    let f = fight(&w).expect("节拍到点打起来");
+    assert_eq!((f.round, f.fighters.len(), f.outcome), (1, 5, None));
+    assert_eq!(
+        (f.fighters[3].name.as_str(), f.fighters[4].name.as_str()),
+        ("地精", "僵尸")
+    );
+    assert_eq!(w.game_mode_tempo(), 1.0);
+    // 4 号没卷进来：看得到在打，交不了战斗里的动作
+    assert!(story_context(&w, "r4").fight[0].contains("你不在里面"));
+    assert!(fight_act(&mut w, "r4", "attack", Some("f1"), None).is_err());
+
+    let mut reloaded = false;
+    let mut timed_out = false;
+    let mut refused = false;
+    for _ in 0..200 {
+        let Some(f) = fight(&w).filter(|f| f.outcome.is_none()) else {
+            break;
+        };
+        let Some(id) = turn_of(&w) else {
+            w.step(1.0);
+            continue;
+        };
+        let me = f
+            .fighters
+            .iter()
+            .find(|x| x.seat == id[1..].parse().ok())
+            .unwrap();
+        // 打还站着的对手里排在前面的那个（f1 地精、f2 僵尸）
+        let (k, foe) = f
+            .fighters
+            .iter()
+            .filter(|x| x.seat.is_none())
+            .enumerate()
+            .find(|(_, x)| x.hp > 0)
+            .expect("没打完就还有对手");
+        let tag = format!("f{}", k + 1);
+        // 够不着的退回去，还轮到他
+        if !refused && me.zone != foe.zone {
+            refused = true;
+            assert!(fight_act(&mut w, id, "attack", Some(&tag), None).is_err());
+            assert_eq!(turn_of(&w), Some(id));
+        }
+        // 没轮到的人交不了
+        let other = ["r1", "r2", "r3"].into_iter().find(|x| *x != id).unwrap();
+        assert!(fight_act(&mut w, other, "dodge", None, None).is_err());
+        // 有一回合不交：到点算闪避，轮到下一个
+        if !timed_out && f.round == 2 {
+            timed_out = true;
+            w.step(16.0);
+            assert_ne!(fight(&w).unwrap().turn, f.turn);
+            continue;
+        }
+        // 打到一半存档读档，接着打一样
+        if !reloaded && f.round == 2 {
+            reloaded = true;
+            w = common::restore(&w, fresh());
+            assert_eq!(fight(&w), Some(f.clone()));
+        }
+        let step = (me.zone != foe.zone).then(|| f.zones[foe.zone as usize].as_str());
+        fight_act(&mut w, id, "attack", Some(&tag), step).unwrap();
+    }
+    let f = fight(&w).unwrap();
+    assert!(
+        refused && timed_out && reloaded,
+        "{refused} {timed_out} {reloaded}"
+    );
+    assert_eq!(f.outcome.as_deref(), Some("won"));
+    let v = storyline(&w);
+    assert!(v.milestones.iter().any(|m| m.id == "survived" && m.done));
+    // 打着的时候后面的节拍等着；打完了故事接着走，生命留到以后
+    assert_eq!(v.beats[1].state, StorylineBeatState::Upcoming);
+    w.step(3.0 * HOUR);
+    assert_ne!(storyline(&w).beats[1].state, StorylineBeatState::Upcoming);
+    assert!(
+        storyline(&w).ruleset.unwrap().fight.is_none(),
+        "下一个节拍到了，打完的那场收起来"
+    );
+    w.set_game_mode(None).unwrap();
+    no_trace(&w);
+
+    // 两个人对四个打手：法师很快倒下，战士一直闪避撑着；法师掷死亡豁免，有的局撑不过去、在世界里真的死了，
+    // 有的局稳住了、战士倒下后打输，他缓过来剩 1 点。
+    let thugs = script(encounter(&[1, 4], &[("thug", 0); 4]));
+    let (mut died, mut lived) = (0, 0);
+    for seed in 1..=40 {
+        let mut w = fresh();
+        open(&mut w, &thugs, seed, true).unwrap();
+        w.step(1.1 * HOUR);
+        for _ in 0..300 {
+            if fight(&w).is_none_or(|f| f.outcome.is_some()) {
+                break;
+            }
+            match turn_of(&w) {
+                Some(id) => {
+                    fight_act(&mut w, id, "dodge", None, None).unwrap();
+                }
+                None => {
+                    w.step(1.0);
+                }
+            }
+        }
+        let f = fight(&w).unwrap();
+        assert_eq!(f.outcome.as_deref(), Some("lost"), "种子 {seed}");
+        let wizard = f.fighters.iter().find(|x| x.seat == Some(4)).unwrap();
+        let dead = w.actor("r4").unwrap().needs.body.dead;
+        assert_eq!(
+            dead,
+            wizard.state.contains(&"死亡".to_string()),
+            "种子 {seed}"
+        );
+        if dead {
+            died += 1;
+        } else {
+            lived += 1;
+            assert_eq!(wizard.hp, 1, "没死的缓过来剩 1 点");
+        }
+        assert!(
+            !w.actor("r1").unwrap().needs.body.dead
+                || f.fighters[0].state.contains(&"死亡".to_string())
+        );
+    }
+    assert!(died > 0 && lived > 0, "死了 {died} 局，活下来 {lived} 局");
 }
 
 /// 交一项带 target 是文字（里程碑编号）的玩法动作

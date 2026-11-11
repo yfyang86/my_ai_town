@@ -1489,6 +1489,18 @@ fn storyline_script() -> StorylineScript {
                     seats: vec![1],
                 }],
             }],
+            encounter: Some(StorylineEncounter {
+                id: "ambush".into(),
+                title: "栈桥伏击".into(),
+                zones: vec!["栈桥".into(), "货堆".into()],
+                party: vec![1, 2],
+                party_zone: 0,
+                foes: vec![EncounterFoe {
+                    creature: "bandit".into(),
+                    name: Some("刀疤".into()),
+                    zone: 1,
+                }],
+            }),
         }],
         milestones: vec![
             StorylineMilestone {
@@ -1524,6 +1536,15 @@ fn storyline_script() -> StorylineScript {
                 detail: "有人翻出了旧账".into(),
                 when: StorylineWhen::Check {
                     check: "ledger".into(),
+                },
+                secret: false,
+            },
+            StorylineMilestone {
+                id: "survived".into(),
+                title: "打退了伏击".into(),
+                detail: "栈桥上的伏击打赢了".into(),
+                when: StorylineWhen::Encounter {
+                    encounter: "ambush".into(),
                 },
                 secret: false,
             },
@@ -1637,6 +1658,33 @@ fn storyline_roster() -> ServerMsg {
                     edge: Some(Edge::Disadvantage),
                     versus: Some(11),
                 }],
+                fight: Some(FightView {
+                    title: "栈桥伏击".into(),
+                    round: 2,
+                    zones: vec!["栈桥".into(), "货堆".into()],
+                    fighters: vec![
+                        FighterView {
+                            name: "阿塔".into(),
+                            seat: Some(1),
+                            hp: 0,
+                            max_hp: 12,
+                            ac: 18,
+                            zone: 1,
+                            state: vec!["昏迷".into()],
+                        },
+                        FighterView {
+                            name: "刀疤".into(),
+                            seat: None,
+                            hp: 4,
+                            max_hp: 11,
+                            ac: 12,
+                            zone: 1,
+                            state: vec![],
+                        },
+                    ],
+                    turn: Some(1),
+                    outcome: Some("lost".into()),
+                }),
             }),
         }));
     }
@@ -1720,6 +1768,9 @@ pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
                                 },
                                 skills: vec!["athletics".into(), "intimidation".into()],
                                 expertise: vec![],
+                                weapon: Some("longsword".into()),
+                                armor: Some("chain_mail".into()),
+                                shield: true,
                             },
                             Srd5Sheet {
                                 class: "rogue".into(),
@@ -1734,6 +1785,9 @@ pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
                                 },
                                 skills: vec!["stealth".into()],
                                 expertise: vec!["stealth".into()],
+                                weapon: None,
+                                armor: None,
+                                shield: false,
                             },
                         ],
                     }),
