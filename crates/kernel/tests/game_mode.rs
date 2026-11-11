@@ -1778,6 +1778,14 @@ fn fifth_edition_duels_heal_between_fights_and_recover_with_a_long_rest() {
         };
         w.game_mode_act("r3", &action).map_err(|e| e.to_string())
     };
+    // 倒下过的人自己歇一阵：花一颗生命骰回点生命，一级只有一颗
+    let hurt = format!("r{loser}");
+    assert!(story_context(&w, &hurt)
+        .actions
+        .contains(&"rest".to_string()));
+    fight_act(&mut w, &hurt, "rest", None, None).unwrap();
+    assert!(!card(&w, &hurt).contains("生命 1/") && card(&w, &hurt).ends_with("生命骰剩 0/1"));
+    assert!(fight_act(&mut w, &hurt, "rest", None, None).is_err());
     assert!(cast(&mut w, "cure_wounds", "4").is_err());
     assert!(cast(&mut w, "bless", loser).is_err());
     assert!(card(&w, "r3").contains("法术位：1 环 2"));

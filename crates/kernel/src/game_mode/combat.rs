@@ -50,6 +50,13 @@ pub struct Creature {
     #[serde(default)]
     pub humanoid: bool,
     pub attack: Attack,
+    /// 一回合打几下（多重攻击）；不写是一下
+    #[serde(default = "one")]
+    pub attacks: u32,
+}
+
+fn one() -> u32 {
+    1
 }
 
 fn ten() -> u32 {
@@ -238,6 +245,9 @@ pub struct Fighter {
     pub sneak: u32,
     #[serde(default)]
     pub sneaked: bool,
+    /// 一回合打几下（有多重攻击的生物）
+    #[serde(default = "one")]
+    pub attacks: u32,
     /// 回气还能用（战士，一场休息一次）
     #[serde(default)]
     pub second_wind: bool,
@@ -472,6 +482,7 @@ impl Fight {
                 side: 1,
                 creature: Some(c.id.clone()),
                 humanoid: c.humanoid,
+                attacks: c.attacks.max(1),
                 save_mods: (
                     (c.dex as i32 - 10).div_euclid(2),
                     (c.con as i32 - 10).div_euclid(2),
@@ -540,19 +551,20 @@ impl Fight {
         f.sneaked = false;
         if f.hp > 0 {
             f.prone = false;
-            // 被定身的人轮到时再过一次感知豁免：过了就挣脱，没过这一回合动不了
+            // 被定身的人轮到时动不了，回合末再过一次感知豁免
             if let Some((by, dc)) = f.held {
                 let name = f.name.clone();
+                // 这一回合动不了；回合末再过一次豁免，过了下一回合才能动
                 if self.save(i, ("wis", dc), "定身", dice, rolls, at) {
                     self.fighters[i].held = None;
                     if self.fighters[by].focus.is_some() {
                         self.fighters[by].focus = None;
                     }
-                    lines.push(format!("{name} 挣脱了定身"));
+                    lines.push(format!("{name} 这一回合动不了，回合末挣脱了定身"));
                 } else {
                     lines.push(format!("{name} 还被定着，动不了"));
-                    return (lines, false);
                 }
+                return (lines, false);
             }
             return (lines, true);
         }
@@ -1391,7 +1403,22 @@ impl Fight {
             .into_iter()
             .filter(|&k| self.fighters[k].zone == here)
             .collect();
-        if let Some(t) = weakest(self, close) {
+        let Some(mut t) = weakest(self, close) else {
+            return lines;
+        };
+        // 多重攻击：打倒了一个就换同一块里还站着的下一个
+        for _ in 0..self.fighters[i].attacks.max(1) {
+            if self.fighters[t].hp <= 0 {
+                let standing: Vec<usize> = self
+                    .enemies(i)
+                    .into_iter()
+                    .filter(|&k| self.fighters[k].zone == here && self.fighters[k].hp > 0)
+                    .collect();
+                match weakest(self, standing) {
+                    Some(next) => t = next,
+                    None => break,
+                }
+            }
             lines.push(self.strike(i, t, dice, rolls, at, ""));
         }
         lines
@@ -1619,6 +1646,7 @@ fn blank() -> Fighter {
         marked: false,
         sneak: 0,
         sneaked: false,
+        attacks: 1,
         second_wind: false,
     }
 }
@@ -1980,6 +2008,14 @@ mod tests {
         let g = gear();
         assert_eq!(g.creatures.len(), 10);
         assert!(g.creatures.iter().all(|c| c.srd.starts_with("Monsters > ")));
+        // 打手有多重攻击：一回合两下
+        let twice: Vec<&str> = g
+            .creatures
+            .iter()
+            .filter(|c| c.attacks == 2)
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(twice, ["thug"]);
         assert!(g.weapons.iter().all(|w| !w.srd.is_empty() && w.dice.1 >= 1));
         assert!(g
             .armor

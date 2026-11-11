@@ -27,6 +27,7 @@ What is taken from it in this repository
   Prayer of Healing - level, range reduced to "touch / at range / an area", damage or healing dice,
   saving throw and concentration.
 - The fighter's Second Wind and the rogue's Sneak Attack.
+- The short rest and hit dice; the thug's Multiattack.
 - The long rest; experience points by creature and the experience needed for levels 2 and 3.
 - The table of typical Difficulty Classes (5 to 25) and the standard set of ability scores
   (15, 14, 13, 12, 10, 8), used by the narrator's rulings and by drafted character sheets.

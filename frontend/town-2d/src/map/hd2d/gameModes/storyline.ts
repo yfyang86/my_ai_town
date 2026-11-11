@@ -71,7 +71,10 @@ export class StorylineLook implements GameModeLook {
       const face = residentPortrait(s.id, s.name)
       face.classList.add('st-face')
       // 开着规则套件：身份后面带上职业和等级（角色卡那一行的开头）
-      const sheet = v.ruleset?.sheets[s.seat - 1]?.split(' · ')[0]
+      const full = v.ruleset?.sheets[s.seat - 1]
+      const sheet = full?.split(' · ')[0]
+      // 整张角色卡放在悬停提示里
+      if (full) row.title = full
       row.append(face, el('b', s.name), el('small', sheet ? `${s.role} · ${sheet}` : s.role))
       if (s.gone) row.append(el('i', '不在了'))
       box.append(row)

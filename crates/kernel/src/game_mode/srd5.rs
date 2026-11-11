@@ -109,6 +109,8 @@ fn magic() -> &'static Magic {
 const SPELLS_MAX: usize = 8;
 /// 睡够这么久（游戏分钟）算一次长休
 const LONG_REST_MINUTES: f64 = 360.0;
+/// 一次短休要这么久（游戏分钟）：这么久里只能短休一次
+const SHORT_REST_MINUTES: f64 = 60.0;
 /// 达成一个里程碑给的经验
 pub(super) const MILESTONE_XP: u32 = 50;
 
@@ -332,6 +334,12 @@ pub struct Srd5 {
     pub asked: Vec<(usize, f64)>,
     #[serde(default)]
     pub ask_seq: u32,
+    /// 每个座位短休用掉了几颗生命骰（一共有等级那么多颗）
+    #[serde(default)]
+    pub dice_spent: Vec<u32>,
+    /// 每个座位上一次短休的时刻
+    #[serde(default)]
+    pub rested_at: Vec<Option<f64>>,
 }
 
 /// 一件等主持人裁定的事
@@ -459,6 +467,8 @@ impl Srd5 {
             asks: Vec::new(),
             asked: Vec::new(),
             ask_seq: 0,
+            dice_spent: vec![0; cast],
+            rested_at: vec![None; cast],
         };
         rules.hp = (0..cast).map(|i| rules.hit_points(i) as i32).collect();
         rules.slots = sheets
@@ -638,7 +648,13 @@ impl Srd5 {
     /// 这个角色参战时带的数
     pub(super) fn member(&self, seat: usize, name: String) -> Member {
         let sheet = &self.sheets[seat];
-        let sneak = if sheet.class == "rogue" {
+        // 偷袭要用灵巧或远程的武器
+        let nimble = combat::gear()
+            .weapons
+            .iter()
+            .find(|w| Some(&w.id) == sheet.weapon.as_ref())
+            .is_some_and(|w| w.finesse || w.ranged);
+        let sneak = if sheet.class == "rogue" && nimble {
             magic()
                 .features
                 .sneak_attack
@@ -760,10 +776,66 @@ impl Srd5 {
                 self.slots[seat] =
                     Self::slot_table(&self.sheets[seat].class, self.sheets[seat].level);
                 self.winded[seat] = false;
+                // 长休回来一半的生命骰（至少一颗）
+                let back = (self.sheets[seat].level / 2).max(1);
+                if let Some(spent) = self.dice_spent.get_mut(seat) {
+                    *spent = spent.saturating_sub(back);
+                }
                 true
             }
             _ => false,
         }
+    }
+
+    /// 还剩几颗生命骰
+    pub(super) fn hit_dice_left(&self, seat: usize) -> u32 {
+        self.sheets[seat]
+            .level
+            .saturating_sub(self.dice_spent.get(seat).copied().unwrap_or(0))
+    }
+
+    /// 短休：花一颗生命骰，回骰出来的数加体质调整值那么多生命。一个小时里一次，生命骰用完要长休才回来。
+    pub(super) fn short_rest(&mut self, seat: usize, now: f64) -> Result<DiceRoll> {
+        let people = self.sheets.len();
+        self.dice_spent.resize(people, 0);
+        self.rested_at.resize(people, None);
+        let max = self.hit_points(seat) as i32;
+        if self.hp[seat] <= 0 {
+            return Err(bad("倒下的人歇不过来，要别人来治"));
+        }
+        if self.hp[seat] >= max {
+            return Err(bad("你没有受伤，不用歇"));
+        }
+        if self.hit_dice_left(seat) == 0 {
+            return Err(bad("生命骰用完了，要好好睡一觉才回来"));
+        }
+        if self.rested_at[seat].is_some_and(|at| now - at < SHORT_REST_MINUTES) {
+            return Err(bad("刚歇过，一个小时里只能短休一次"));
+        }
+        let sheet = &self.sheets[seat];
+        let die = class(&sheet.class).map_or(8, |c| c.hit_die);
+        let con = modifier(sheet.abilities.con);
+        let thrown = self.dice.roll(die);
+        let healed = (thrown as i32 + con).max(1);
+        self.hp[seat] = (self.hp[seat] + healed).min(max);
+        self.dice_spent[seat] += 1;
+        self.rested_at[seat] = Some(now);
+        let roll = DiceRoll {
+            at: now,
+            seat: seat as u32 + 1,
+            what: "短休".into(),
+            way: "生命骰".into(),
+            formula: format!("d{die}{con:+}"),
+            dice: vec![thrown],
+            modifier: con,
+            total: healed,
+            dc: None,
+            success: None,
+            edge: None,
+            versus: None,
+        };
+        self.record(roll.clone());
+        Ok(roll)
     }
 
     /// 不在打的时候施一个治疗的法术：对象是同在一处的自己人（座位下标），返回每个人回了多少。
@@ -875,7 +947,7 @@ impl Srd5 {
             )
         };
         format!(
-            "{class} {} 级（经验 {}）· 生命 {now}/{} · 护甲 {}（{}{}）· {}（{:+} 命中，{}d{}{:+}）· {} · 豁免熟练：{}{trained}{magic}",
+            "{class} {} 级（经验 {}）· 生命 {now}/{} · 护甲 {}（{}{}）· {}（{:+} 命中，{}d{}{:+}）· {} · 豁免熟练：{}{trained}{magic} · 生命骰剩 {}/{}",
             sheet.level,
             self.xp.get(seat).copied().unwrap_or(0),
             self.hit_points(seat),
@@ -892,7 +964,9 @@ impl Srd5 {
             attack.dice.1,
             attack.plus,
             scores.join(" "),
-            saves.join("、")
+            saves.join("、"),
+            self.hit_dice_left(seat),
+            sheet.level
         )
     }
 
@@ -1103,6 +1177,23 @@ mod tests {
         assert!(!rules.note_sleep(0, true, 300.0));
         assert!(rules.note_sleep(0, false, 300.0 + LONG_REST_MINUTES));
         assert_eq!((rules.hp[0], rules.slots[0].clone()), (24, vec![4, 2]));
+        // 短休：花一颗生命骰（牧师 d8）加体质调整值 2；一个小时一次；没受伤不用歇；长休回来一半
+        assert!(rules.short_rest(0, 1000.0).is_err(), "没受伤");
+        rules.hp[0] = 1;
+        let roll = rules.short_rest(0, 1000.0).unwrap();
+        assert_eq!(rules.hp[0], 1 + roll.dice[0] as i32 + 2);
+        assert_eq!((rules.hit_dice_left(0), roll.formula.as_str()), (2, "d8+2"));
+        assert!(rules.short_rest(0, 1030.0).is_err(), "一个小时一次");
+        rules.hp[0] = 1;
+        rules.short_rest(0, 1100.0).unwrap();
+        rules.hp[0] = 1;
+        rules.short_rest(0, 1200.0).unwrap();
+        rules.hp[0] = 1;
+        assert!(rules.short_rest(0, 1300.0).is_err(), "生命骰用完了");
+        rules.note_sleep(0, true, 2000.0);
+        assert!(rules.note_sleep(0, false, 2000.0 + LONG_REST_MINUTES));
+        assert_eq!(rules.hit_dice_left(0), 1);
+        assert!(rules.sheet_line(0).ends_with("生命骰剩 1/3"));
     }
 
     /// 生命值和加值照规则算：战士 1 级体质 14 是 12 点，3 级是 28 点；游荡者专精的技能熟练加值算两次；
@@ -1154,6 +1245,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!((rules.hit_points(0), rules.hit_points(1)), (12, 28));
+        // 偷袭要用灵巧或远程的武器：空着手的游荡者没有
+        assert_eq!(rules.member(2, "游荡者".into()).sneak, 0);
         assert_eq!(rules.hit_points(2), 9);
         let way = |ability: &str, skill: Option<&str>, save| CheckWay {
             ability: ability.into(),

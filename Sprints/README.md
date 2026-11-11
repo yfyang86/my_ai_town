@@ -33,7 +33,7 @@ An optional ruleset on the storyline mode, built from SRD 5.1. The plan, scope a
 | 9 | Combat: initiative, turns, attacks, death saves | merged into `dev` |
 | 10 | Magic, long rest, experience and levels, duels | merged into `dev` |
 | 11 | Model narrator, adventure drafting in the story editor | merged into `dev` |
-| 12 | Playtest, balance, cost report, release notes | planned |
+| 12 | SRD check, short rest, cost report, player notes | merged into `dev` |
 
 ## Decisions taken with the product owner (2026-11-11)
 

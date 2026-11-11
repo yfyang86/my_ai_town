@@ -565,6 +565,33 @@ impl Storyline {
         world.notify(&id, text.to_string());
     }
 
+    /// 短休：不在打、戏也散了的时候歇一阵，花一颗生命骰回点生命。
+    fn short_rest(&mut self, world: &mut World, i: usize) -> Result<String> {
+        if self.fighting() {
+            return Err(bad("正打着，歇不了"));
+        }
+        if self.scene.is_some() {
+            return Err(bad("戏还没散，等这场戏完了再歇"));
+        }
+        let now = world.minutes();
+        let Some(rules) = &mut self.rules else {
+            return Err(bad("这个故事没有开规则"));
+        };
+        let roll = rules.short_rest(i, now)?;
+        let outcome = format!(
+            "掷生命骰 {} 得 {}，回了 {} 点生命，现在 {}/{}，生命骰还剩 {} 颗",
+            roll.formula,
+            roll.dice[0],
+            roll.total,
+            rules.hp[i],
+            rules.hit_points(i),
+            rules.hit_dice_left(i)
+        );
+        let line = format!("{} 歇了一阵（短休）：{outcome}。", self.label(i));
+        self.say(world, &line);
+        Ok(outcome)
+    }
+
     // ---------- 临场裁定（开着规则套件才有） ----------
 
     /// 角色想做一件剧本里没写成检定的事：记下来等主持人裁定。一人一次只能有一件在等，每小时有上限。
@@ -692,7 +719,7 @@ impl Storyline {
                 };
                 // 骰子记录里只留开头一截：想做的事可以写得很长
                 let (short, cut) = clip(&ask.text, ASK_TITLE_CHARS);
-                let what = format!("{short}{}", if cut { "…" } else { "" });
+                let what = format!("临场：{short}{}", if cut { "…" } else { "" });
                 let roll = rules.improvise(seat, &what, &way, dc, ruling.edge, now);
                 let thrown = match ruling.edge {
                     Some(Edge::Advantage) => {
@@ -2245,7 +2272,16 @@ impl Rules for Storyline {
                 .map(|e| e.trim().to_string()),
             ruleset: self.rules.as_ref().map(|r| RulesetView {
                 id: "srd5".into(),
-                sheets: (0..self.seats.len()).map(|i| r.sheet_line(i)).collect(),
+                sheets: (0..self.seats.len())
+                    .map(|i| {
+                        let line = r.sheet_line(i);
+                        if self.seats[i].gone {
+                            line.replacen("）·", "，已不在）·", 1)
+                        } else {
+                            line
+                        }
+                    })
+                    .collect(),
                 rolls: r.rolls.clone(),
                 fight: r.fight.as_ref().map(Fight::view),
             }),
@@ -2330,6 +2366,12 @@ impl Rules for Storyline {
                 if self.scene.is_none() && !rules.asks.iter().any(|a| a.seat == i) {
                     actions.push("attempt".into());
                 }
+                if rules.hp[i] > 0
+                    && rules.hp[i] < rules.hit_points(i) as i32
+                    && rules.hit_dice_left(i) > 0
+                {
+                    actions.push("rest".into());
+                }
                 if !rules.spells(i).is_empty() {
                     actions.push("cast".into());
                 }
@@ -2400,6 +2442,7 @@ dash 冲刺（with 里填 move：要到的区域）、help 帮同伴（target �
 cast 施法（with 里填 spell：法术的编号，要用高环的法术位再填 slot；target 填对象的编号，罩一块区域的法术指那块里的一个对手）、\
 second_wind 回气（战士）；别的动作要先走一步就在 with 里填 move。近身要和对手在同一块区域；生命归零会倒下昏迷，可能死去。\
 不在打的时候：cast 可以施治疗的法术（对象要在你跟前）；duel 和跟前的一个人动手（target 填座号），按同样的规矩打到一方倒下为止。\
+rest 短休：受了伤、不在打的时候歇一阵，花一颗生命骰回点生命（一个小时一次，生命骰和等级一样多，用完要睡一觉才回来）。\
 在床上睡够一觉，生命和法术位回满。\
 attempt 做一件上面没列出来、成不成说不准的事（撬锁、翻墙、哄人、找东西……）：text 里写清楚要做什么、怎么做，\
 主持人裁定要不要掷骰、用哪项属性和技能、多难，骰子替你掷，结果出来会告诉你；一次只能有一件在等，一个小时最多三件。"
@@ -2451,10 +2494,11 @@ attempt 做一件上面没列出来、成不成说不准的事（撬锁、翻墙
             "duel" if self.rules.is_some() => self.begin_duel(world, i, action),
             "cast" if self.rules.is_some() => self.cast_outside(world, i, action),
             "attempt" if self.rules.is_some() => self.improvise(world, i, action),
+            "rest" if self.rules.is_some() => self.short_rest(world, i),
             other => Err(bad(format!(
                 "故事里没有「{other}」这个动作：能交的是 speak、pass、declare{}",
                 if self.rules.is_some() {
-                    "、check、help、cast、duel、attempt"
+                    "、check、help、cast、duel、attempt、rest"
                 } else {
                     ""
                 }

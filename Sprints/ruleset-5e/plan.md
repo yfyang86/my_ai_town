@@ -1,6 +1,6 @@
 # Plan — an optional fifth-edition rule suite
 
-Status: approved; sprints 7–11 are built and merged into `dev` (see each `sprint-N/report.md`), 12 remains. Six sprints (7–12), same loop as before.
+Status: approved; all six sprints (7–12) are built and merged into `dev`; each `sprint-N/report.md` says what shipped and what was left. Six sprints (7–12), same loop as before.
 
 ## What "optional rule suite" means here
 
