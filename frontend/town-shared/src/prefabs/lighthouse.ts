@@ -114,11 +114,18 @@ const CAST: PrefabPersona[] = [
 const sheet = (
   cls: string,
   [str, dex, con, int, wis, cha]: number[],
-  skills: string[]
-): Srd5Sheet => ({ class: cls, level: 1, abilities: { str, dex, con, int, wis, cha }, skills })
+  skills: string[],
+  expertise: string[] = []
+): Srd5Sheet => ({
+  class: cls,
+  level: 1,
+  abilities: { str, dex, con, int, wis, cha },
+  skills,
+  ...(expertise.length && { expertise }),
+})
 const SHEETS: Srd5Sheet[] = [
   sheet('fighter', [14, 10, 15, 10, 14, 8], ['athletics', 'survival']),
-  sheet('rogue', [8, 12, 12, 14, 10, 16], ['deception', 'persuasion']),
+  sheet('rogue', [8, 12, 12, 14, 10, 16], ['deception', 'persuasion'], ['deception']),
   sheet('fighter', [16, 13, 14, 8, 12, 10], ['athletics', 'intimidation']),
   sheet('wizard', [8, 12, 10, 15, 13, 15], ['persuasion', 'insight']),
   sheet('cleric', [10, 10, 13, 12, 16, 13], ['insight', 'perception']),
@@ -214,6 +221,16 @@ const script: StorylineScript = {
             { ability: 'wis', skill: 'insight' },
           ],
         },
+        {
+          // 被动检定：不掷骰，够敏锐的人自己听出来，别人不知道
+          id: 'slip',
+          title: '听出话里的破绽',
+          detail: '传这句话的人说漏了：那笔钱是替一桩生意担保赔掉的',
+          dc: 14,
+          seats: [3, 5, 6],
+          ways: [{ ability: 'wis', skill: 'insight' }],
+          passive: true,
+        },
       ],
     },
     {
@@ -224,6 +241,28 @@ const script: StorylineScript = {
       place: '镇公所',
       announce: '18:00，镇公所里开始表决：每个人依次说卖还是不卖，说说理由。',
       scene: { speakers: [6, 5, 3, 4, 1, 2], minutes: 10, chars: 200 },
+      checks: [
+        {
+          // 对抗：和镇长掷出来的比（她用最拿手的办法应对）；账对上了以后逼问有优势
+          id: 'press',
+          title: '当面逼问镇长',
+          detail: '逼她当众说清那笔债；掷得比她高，她就圆不过去',
+          dc: 13,
+          seats: [3, 6],
+          ways: [
+            { ability: 'wis', skill: 'insight' },
+            { ability: 'cha', skill: 'intimidation' },
+          ],
+          against: {
+            seat: 2,
+            ways: [
+              { ability: 'cha', skill: 'deception' },
+              { ability: 'cha', skill: 'persuasion' },
+            ],
+          },
+          edges: [{ effect: 'advantage', reason: '账已经对上了', milestone: 'audited' }],
+        },
+      ],
     },
     {
       id: 'lamp',
@@ -242,6 +281,8 @@ const script: StorylineScript = {
           dc: 12,
           seats: [1, 6],
           ways: [{ ability: 'int' }, { ability: 'dex', skill: 'sleight_of_hand' }],
+          repeat: true,
+          edges: [{ effect: 'advantage', reason: '有人在旁边照着亮', milestone: 'gathered' }],
         },
       ],
     },
@@ -277,6 +318,12 @@ const script: StorylineScript = {
       title: '账目对上了',
       detail: '有人看懂了镇上的账',
       when: { kind: 'check', check: 'ledger' },
+    },
+    {
+      id: 'cornered',
+      title: '镇长被问住了',
+      detail: '有人当面逼问，镇长圆不过去',
+      when: { kind: 'check', check: 'press' },
     },
     {
       id: 'lit',

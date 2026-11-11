@@ -119,7 +119,10 @@ export class StorylineLook implements GameModeLook {
           el('b', `${this.seat(r.seat)?.name ?? ''} · ${r.what}`),
           el(
             'small',
-            `${r.way}：d20 掷出 ${r.dice.join('、')}，${sign}${Math.abs(r.modifier)} 共 ${r.total}` +
+            `${r.way}：d20 掷出 ${r.dice.join('、')}` +
+              (r.edge ? `（${r.edge === 'advantage' ? '优势，取高' : '劣势，取低'}）` : '') +
+              `，${sign}${Math.abs(r.modifier)} 共 ${r.total}` +
+              (r.versus !== undefined ? `，对方 ${r.versus}` : '') +
               (r.dc === undefined ? '' : `，难度 ${r.dc}`)
           )
         )

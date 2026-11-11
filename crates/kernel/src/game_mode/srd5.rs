@@ -1,18 +1,47 @@
 //! 第五版规则（System Reference Document 5.1，Wizards of the Coast LLC，CC BY 4.0）在内核里的那一半：
 //! 角色卡、调整值和熟练加值、属性检定。故事模式开着它时，剧本里的检定由这里掷骰定成败。
-//! 现在只有检定；战斗、法术、休息和升级随后面几期加进来，都放在这个文件旁边。
+//! 职业的数据（生命骰、豁免熟练、能挑的技能）在 data/rules/5e/classes.json，编译时带进来。
+//! 现在有检定的全套：技能和属性检定、豁免、优势劣势、对抗、被动检定、帮一把、专精；
+//! 战斗、法术、休息和升级随后面几期加进来。
 use super::dice::Dice;
 use crate::error::{KernelError, Result};
-use protocol::{Abilities, CheckWay, DiceRoll, Srd5Sheet, StorylineCheck, ABILITIES, SKILLS};
+use protocol::{Abilities, CheckWay, DiceRoll, Edge, Srd5Sheet, StorylineCheck, ABILITIES, SKILLS};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-const CLASSES: [(&str, &str); 4] = [
-    ("fighter", "战士"),
-    ("rogue", "游荡者"),
-    ("cleric", "牧师"),
-    ("wizard", "法师"),
-];
+/// 一个职业：生命骰、哪两项豁免熟练、能从哪些技能里挑几项、能专精几项
+#[derive(Debug, Clone, Deserialize)]
+pub struct Class {
+    pub id: String,
+    pub name: String,
+    /// 出自规则书的哪一节（数据测试查每一项都写了出处）
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub srd: String,
+    pub hit_die: u32,
+    pub saves: Vec<String>,
+    pub skill_count: usize,
+    pub skills: Vec<String>,
+    pub expertise: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClassData {
+    classes: Vec<Class>,
+    /// 背景另给的技能熟练数
+    background_skills: usize,
+}
+
+fn data() -> &'static ClassData {
+    static DATA: std::sync::OnceLock<ClassData> = std::sync::OnceLock::new();
+    DATA.get_or_init(|| {
+        serde_json::from_str(include_str!("../../../../data/rules/5e/classes.json"))
+            .expect("data/rules/5e/classes.json 随源码带着，格式是对的")
+    })
+}
+
+fn class(id: &str) -> Option<&'static Class> {
+    data().classes.iter().find(|c| c.id == id)
+}
 const LEVELS: std::ops::RangeInclusive<u32> = 1..=3;
 const SCORES: std::ops::RangeInclusive<u32> = 3..=20;
 pub(super) const DCS: std::ops::RangeInclusive<u32> = 1..=30;
@@ -89,21 +118,29 @@ pub(super) fn check_way(way: &CheckWay) -> Result<()> {
         if !SKILLS.iter().any(|(id, _)| id == skill) {
             return Err(bad(format!("不认得技能「{skill}」")));
         }
+        if way.save {
+            return Err(bad("一种试法不能既是技能又是豁免"));
+        }
     }
     Ok(())
 }
 
-/// 一种试法写给人看：「敏捷·巧手」「力量」
+/// 一种试法写给人看：「敏捷·巧手」「体质豁免」「力量」
 pub(super) fn way_name(way: &CheckWay) -> String {
     match &way.skill {
         Some(skill) => format!("{}·{}", ability_name(&way.ability), skill_name(skill)),
+        None if way.save => format!("{}豁免", ability_name(&way.ability)),
         None => ability_name(&way.ability).to_string(),
     }
 }
 
-/// 一种试法的编号：带技能的是技能，不带的是属性；模型在 with 里填它
-pub(super) fn way_key(way: &CheckWay) -> &str {
-    way.skill.as_deref().unwrap_or(&way.ability)
+/// 一种试法的编号：带技能的是技能，豁免是「属性_save」，都不是就是属性；模型在 with 里填它
+pub(super) fn way_key(way: &CheckWay) -> String {
+    match &way.skill {
+        Some(skill) => skill.clone(),
+        None if way.save => format!("{}_save", way.ability),
+        None => way.ability.clone(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +155,9 @@ pub struct Srd5 {
     /// 通过了的检定 → 谁通过的
     #[serde(default)]
     pub passed: BTreeMap<String, usize>,
+    /// 有人帮一把的检定 → 被帮的人 → 帮他的人：被帮的人下一次试这项检定有优势，用掉就没了
+    #[serde(default)]
+    pub helped: BTreeMap<String, BTreeMap<usize, usize>>,
 }
 
 impl Srd5 {
@@ -131,9 +171,9 @@ impl Srd5 {
         }
         for (i, sheet) in sheets.iter().enumerate() {
             let who = format!("{} 号的角色卡", i + 1);
-            if !CLASSES.iter().any(|(id, _)| *id == sheet.class) {
+            let Some(class) = class(&sheet.class) else {
                 return Err(bad(format!("{who}：不认得职业「{}」", sheet.class)));
-            }
+            };
             if !LEVELS.contains(&sheet.level) {
                 return Err(bad(format!(
                     "{who}：等级要在 {}–{} 之间",
@@ -157,6 +197,37 @@ impl Srd5 {
                     return Err(bad(format!("{who}：技能「{skill}」不认得或写了两次")));
                 }
             }
+            // 职业给几项（从职业的单子里挑）、背景再给两项（哪项都行）
+            let allowed = class.skill_count + data().background_skills;
+            let outside = sheet
+                .skills
+                .iter()
+                .filter(|s| !class.skills.contains(s))
+                .count();
+            if outside > data().background_skills {
+                return Err(bad(format!(
+                    "{who}：{}的职业技能里没有的最多 {} 项（靠背景得来），写了 {outside} 项",
+                    class.name,
+                    data().background_skills
+                )));
+            }
+            if sheet.skills.len() > allowed {
+                return Err(bad(format!(
+                    "{who}：{}最多熟练 {allowed} 项技能（职业 {} 项、背景 {} 项），写了 {} 项",
+                    class.name,
+                    class.skill_count,
+                    data().background_skills,
+                    sheet.skills.len()
+                )));
+            }
+            if sheet.expertise.len() > class.expertise
+                || sheet.expertise.iter().any(|e| !sheet.skills.contains(e))
+            {
+                return Err(bad(format!(
+                    "{who}：{}能专精 {} 项，而且要是已经熟练的技能",
+                    class.name, class.expertise
+                )));
+            }
         }
         Ok(Self {
             sheets: sheets.to_vec(),
@@ -164,31 +235,48 @@ impl Srd5 {
             rolls: Vec::new(),
             tried: BTreeMap::new(),
             passed: BTreeMap::new(),
+            helped: BTreeMap::new(),
         })
     }
 
-    /// 这个人用这种试法的加值：属性调整值，熟练这项技能的再加熟练加值
-    fn bonus(&self, seat: usize, way: &CheckWay) -> i32 {
+    /// 这个人用这种试法的加值：属性调整值；熟练这项技能、或者职业熟练这项豁免的再加熟练加值；专精的加两次
+    pub(super) fn bonus(&self, seat: usize, way: &CheckWay) -> i32 {
         let sheet = &self.sheets[seat];
-        let proficient = way
-            .skill
-            .as_ref()
-            .is_some_and(|skill| sheet.skills.contains(skill));
-        modifier(score(&sheet.abilities, &way.ability))
-            + if proficient {
-                proficiency(sheet.level)
-            } else {
-                0
+        let times = match &way.skill {
+            Some(skill) if sheet.expertise.contains(skill) => 2,
+            Some(skill) if sheet.skills.contains(skill) => 1,
+            None if way.save
+                && class(&sheet.class).is_some_and(|c| c.saves.contains(&way.ability)) =>
+            {
+                1
             }
+            _ => 0,
+        };
+        modifier(score(&sheet.abilities, &way.ability)) + times * proficiency(sheet.level)
+    }
+
+    /// 这个人用这几种试法里最拿手的一种
+    pub(super) fn best<'a>(&self, seat: usize, ways: &'a [CheckWay]) -> Option<&'a CheckWay> {
+        ways.iter().max_by_key(|w| self.bonus(seat, w))
+    }
+
+    /// 生命值上限：1 级是生命骰的最大值加体质调整值，以后每级加生命骰的平均值（向上取整）加体质调整值
+    pub(super) fn hit_points(&self, seat: usize) -> u32 {
+        let sheet = &self.sheets[seat];
+        let die = class(&sheet.class).map_or(8, |c| c.hit_die) as i32;
+        let con = modifier(sheet.abilities.con);
+        let later = (sheet.level as i32 - 1) * (die / 2 + 1 + con).max(1);
+        (die + con + later).max(1) as u32
     }
 
     /// 角色卡写成一行：「战士 1 级 · 力量 16(+3) 敏捷 12(+1) …… · 熟练：运动、威吓」
     pub(super) fn sheet_line(&self, seat: usize) -> String {
         let sheet = &self.sheets[seat];
-        let class = CLASSES
-            .iter()
-            .find(|(id, _)| *id == sheet.class)
-            .map_or("", |(_, name)| name);
+        let class = class(&sheet.class);
+        let saves: Vec<&str> = class
+            .map(|c| c.saves.iter().map(|a| ability_name(a)).collect())
+            .unwrap_or_default();
+        let class = class.map_or("", |c| c.name.as_str());
         let scores: Vec<String> = ABILITIES
             .iter()
             .map(|a| {
@@ -196,7 +284,18 @@ impl Srd5 {
                 format!("{} {s}({:+})", ability_name(a), modifier(s))
             })
             .collect();
-        let skills: Vec<&str> = sheet.skills.iter().map(|s| skill_name(s)).collect();
+        let skills: Vec<String> = sheet
+            .skills
+            .iter()
+            .map(|s| {
+                let mark = if sheet.expertise.contains(s) {
+                    "（专精）"
+                } else {
+                    ""
+                };
+                format!("{}{mark}", skill_name(s))
+            })
+            .collect();
         let trained = if skills.is_empty() {
             String::new()
         } else {
@@ -206,11 +305,17 @@ impl Srd5 {
                 skills.join("、")
             )
         };
-        format!("{class} {} 级 · {}{trained}", sheet.level, scores.join(" "))
+        format!(
+            "{class} {} 级 · 生命 {} · {} · 豁免熟练：{}{trained}",
+            sheet.level,
+            self.hit_points(seat),
+            scores.join(" "),
+            saves.join("、")
+        )
     }
 
     /// 一项检定对这个人写成一行：每种试法带着他自己的加值
-    pub(super) fn check_line(&self, seat: usize, check: &StorylineCheck) -> String {
+    pub(super) fn check_line(&self, seat: usize, check: &StorylineCheck, notes: &str) -> String {
         let ways: Vec<String> = check
             .ways
             .iter()
@@ -224,11 +329,10 @@ impl Srd5 {
             })
             .collect();
         format!(
-            "{}：{}（{}）难度 {}，可以用 {}",
+            "{}：{}（{}）{notes}，可以用 {}",
             check.id,
             check.title.trim(),
             check.detail.trim(),
-            check.dc,
             ways.join(" 或 ")
         )
     }
@@ -237,37 +341,207 @@ impl Srd5 {
         self.tried.get(check).is_some_and(|t| t.contains(&seat))
     }
 
-    /// 掷一次检定：d20 + 加值，和难度比。记下这一掷，返回它。
+    /// 掷 d20：有优势或劣势时掷两颗，取高的或低的那颗。返回（掷出的每一颗，取的那一颗）
+    fn d20(&mut self, edge: Option<Edge>) -> (Vec<u32>, u32) {
+        let first = self.dice.roll(20);
+        match edge {
+            None => (vec![first], first),
+            Some(edge) => {
+                let second = self.dice.roll(20);
+                let kept = match edge {
+                    Edge::Advantage => first.max(second),
+                    Edge::Disadvantage => first.min(second),
+                };
+                (vec![first, second], kept)
+            }
+        }
+    }
+
+    /// 掷一次检定：d20 + 加值，和难度比；对抗时和对方掷出来的比（rival 是对方的座位和他用的办法），
+    /// 平手算没成。记下这一掷（对抗时对方那一掷也记），返回试的这个人的那一掷。
     pub(super) fn attempt(
         &mut self,
         seat: usize,
         check: &StorylineCheck,
         way: &CheckWay,
+        edge: Option<Edge>,
+        rival: Option<(usize, &CheckWay)>,
         at: f64,
     ) -> DiceRoll {
-        let die = self.dice.roll(20);
+        let (dice, kept) = self.d20(edge);
         let bonus = self.bonus(seat, way);
-        let total = die as i32 + bonus;
-        let success = total >= check.dc as i32;
+        let total = kept as i32 + bonus;
+        let versus = rival.map(|(other, other_way)| {
+            let (other_dice, other_kept) = self.d20(None);
+            let other_bonus = self.bonus(other, other_way);
+            let other_total = other_kept as i32 + other_bonus;
+            self.record(DiceRoll {
+                at,
+                seat: other as u32 + 1,
+                what: format!("{}（应对）", check.title.trim()),
+                way: way_name(other_way),
+                formula: format!("d20{other_bonus:+}"),
+                dice: other_dice,
+                modifier: other_bonus,
+                total: other_total,
+                dc: None,
+                success: Some(other_total >= total),
+                edge: None,
+                versus: Some(total),
+            });
+            other_total
+        });
+        let success = match versus {
+            Some(other) => total > other,
+            None => total >= check.dc as i32,
+        };
         let roll = DiceRoll {
             at,
             seat: seat as u32 + 1,
             what: check.title.trim().to_string(),
             way: way_name(way),
             formula: format!("d20{bonus:+}"),
-            dice: vec![die],
+            dice,
             modifier: bonus,
             total,
-            dc: Some(check.dc),
+            dc: versus.is_none().then_some(check.dc),
             success: Some(success),
+            edge,
+            versus,
         };
         self.tried.entry(check.id.clone()).or_default().push(seat);
+        if let Some(helpers) = self.helped.get_mut(&check.id) {
+            helpers.remove(&seat);
+        }
         if success {
             self.passed.entry(check.id.clone()).or_insert(seat);
         }
-        self.rolls.push(roll.clone());
+        self.record(roll.clone());
+        roll
+    }
+
+    fn record(&mut self, roll: DiceRoll) {
+        self.rolls.push(roll);
         let extra = self.rolls.len().saturating_sub(ROLLS_KEPT);
         self.rolls.drain(..extra);
-        roll
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 规则数据每一项都写着出自规则书的哪一节，只有计划里定下的四个职业；技能和豁免都是规则里有的。
+    /// 生命值和加值照规则算：战士 1 级体质 14 是 12 点，3 级是 28 点；游荡者专精的技能熟练加值算两次；
+    /// 职业熟练的豁免加熟练加值，不熟练的只有属性调整值。
+    #[test]
+    fn class_data_cites_the_srd_and_derived_values_follow_the_rules() {
+        let ids: Vec<&str> = data().classes.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["fighter", "rogue", "cleric", "wizard"]);
+        for c in &data().classes {
+            assert!(c.srd.starts_with("Classes > "), "{} 没写出处", c.id);
+            assert!([6, 8, 10, 12].contains(&c.hit_die));
+            assert_eq!(c.saves.len(), 2);
+            assert!(c.saves.iter().all(|a| ABILITIES.contains(&a.as_str())));
+            assert!(c
+                .skills
+                .iter()
+                .all(|s| SKILLS.iter().any(|(id, _)| id == s)));
+            assert!(c.skill_count <= c.skills.len());
+        }
+        let abilities = |str, dex, con, int, wis, cha| Abilities {
+            str,
+            dex,
+            con,
+            int,
+            wis,
+            cha,
+        };
+        let sheet = |class: &str, level, a, skills: &[&str], expertise: &[&str]| Srd5Sheet {
+            class: class.into(),
+            level,
+            abilities: a,
+            skills: skills.iter().map(|s| s.to_string()).collect(),
+            expertise: expertise.iter().map(|s| s.to_string()).collect(),
+        };
+        let fighter = abilities(16, 12, 14, 10, 13, 8);
+        let rogue = abilities(8, 16, 12, 13, 10, 14);
+        let rules = Srd5::open(
+            &[
+                sheet("fighter", 1, fighter, &["athletics"], &[]),
+                sheet("fighter", 3, fighter, &["athletics"], &[]),
+                sheet("rogue", 1, rogue, &["stealth", "deception"], &["stealth"]),
+            ],
+            3,
+            1,
+        )
+        .unwrap();
+        assert_eq!((rules.hit_points(0), rules.hit_points(1)), (12, 28));
+        assert_eq!(rules.hit_points(2), 9);
+        let way = |ability: &str, skill: Option<&str>, save| CheckWay {
+            ability: ability.into(),
+            skill: skill.map(str::to_owned),
+            save,
+        };
+        // 游荡者：隐匿专精 +3+2+2，欺瞒熟练 +2+2，敏捷豁免熟练 +3+2，力量豁免不熟练 −1
+        assert_eq!(rules.bonus(2, &way("dex", Some("stealth"), false)), 7);
+        assert_eq!(rules.bonus(2, &way("cha", Some("deception"), false)), 4);
+        assert_eq!(rules.bonus(2, &way("dex", None, true)), 5);
+        assert_eq!(rules.bonus(2, &way("str", None, true)), -1);
+        assert_eq!(way_key(&way("con", None, true)), "con_save");
+        // 不合规则的角色卡：战士不能专精；职业单子外的技能超过背景给的两项；技能总数超了
+        let bad = |s: Srd5Sheet| Srd5::open(&[s], 1, 1).is_err();
+        assert!(bad(sheet(
+            "fighter",
+            1,
+            fighter,
+            &["athletics"],
+            &["athletics"]
+        )));
+        assert!(bad(sheet(
+            "fighter",
+            1,
+            fighter,
+            &["arcana", "stealth", "religion"],
+            &[]
+        )));
+        assert!(bad(sheet(
+            "wizard",
+            1,
+            fighter,
+            &["arcana", "history", "insight", "investigation", "medicine"],
+            &[]
+        )));
+        assert!(bad(sheet("rogue", 1, rogue, &["stealth"], &["deception"])));
+
+        // 优势和劣势确实改了成算：加值 0 对难度 11，平常一半成，有优势约四分之三，有劣势约四分之一
+        let check = StorylineCheck {
+            id: "odds".into(),
+            title: "试手气".into(),
+            detail: "".into(),
+            dc: 11,
+            seats: vec![],
+            ways: vec![],
+            repeat: true,
+            passive: false,
+            against: None,
+            edges: vec![],
+        };
+        let flat = way("int", None, false);
+        let mut rules = Srd5::open(&[sheet("fighter", 1, fighter, &[], &[])], 1, 77).unwrap();
+        let mut rate = |edge| {
+            let hits = (0..20_000)
+                .filter(|_| rules.attempt(0, &check, &flat, edge, None, 0.0).success == Some(true))
+                .count();
+            hits as f64 / 20_000.0
+        };
+        let (plain, up, down) = (
+            rate(None),
+            rate(Some(Edge::Advantage)),
+            rate(Some(Edge::Disadvantage)),
+        );
+        assert!((plain - 0.5).abs() < 0.02, "{plain}");
+        assert!((up - 0.75).abs() < 0.02, "{up}");
+        assert!((down - 0.25).abs() < 0.02, "{down}");
     }
 }

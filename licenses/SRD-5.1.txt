@@ -10,11 +10,16 @@ What is taken from it in this repository
 - The proficiency bonus by level.
 - The list of eighteen skills and the ability each is based on.
 - The ability check procedure: d20 + modifiers against a Difficulty Class.
-- The class names fighter, rogue, cleric and wizard.
+- The class names fighter, rogue, cleric and wizard, and for each: hit die, saving-throw proficiencies,
+  the skill list and number of choices, and the rogue's Expertise.
+- Hit points at 1st level and at higher levels (fixed average).
+- Saving throws; advantage and disadvantage; contests; passive checks; the Help action;
+  the two skill proficiencies granted by a background.
 
 Where it is used
 - crates/protocol/src/game_mode/ruleset.rs
 - crates/kernel/src/game_mode/srd5.rs
+- data/rules/5e/classes.json
 - frontend/town-shared/src/prefabs/lighthouse.ts (character sheets and checks for the optional rules switch)
 
 Only material in SRD 5.1 may be added. Content that is not in the SRD (settings, named characters, and creatures

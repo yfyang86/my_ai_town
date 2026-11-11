@@ -15,6 +15,7 @@ use protocol::{
     StorylineContext, StorylineLine, StorylineMilestoneView, StorylineScript, StorylineSeat,
     StorylineView, StorylineWhen,
 };
+use protocol::{CheckWay, Edge};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -41,6 +42,7 @@ const EPS: f64 = 1e-6;
 /// 一个节拍上最多几项检定，一项检定最多几种试法
 const BEAT_CHECKS: usize = 6;
 const CHECK_WAYS: usize = 4;
+const CHECK_EDGES: usize = 4;
 
 fn clip(text: &str, n: usize) -> (String, bool) {
     let text = text.trim();
@@ -129,6 +131,8 @@ pub(super) fn check(script: &StorylineScript) -> Result<()> {
     }
     let mut ids = BTreeSet::new();
     let mut checks = BTreeSet::new();
+    // 检定的优势劣势指着的里程碑：等里程碑都看过了再对
+    let mut edge_marks: Vec<(String, String)> = Vec::new();
     let mut last = 0u32;
     for b in &script.beats {
         let what = format!("节拍「{}」", b.id);
@@ -200,6 +204,39 @@ pub(super) fn check(script: &StorylineScript) -> Result<()> {
                     return Err(bad(format!("{what}的试法写重了")));
                 }
             }
+            if let Some(against) = &c.against {
+                seats_in(&format!("{what}对抗的人"), &[against.seat], cast)?;
+                if against.ways.is_empty() || against.ways.len() > CHECK_WAYS {
+                    return Err(bad(format!("{what}对抗的一方要有 1–{CHECK_WAYS} 种办法")));
+                }
+                against.ways.iter().try_for_each(srd5::check_way)?;
+                if c.seats.len() == 1 && c.seats[0] == against.seat {
+                    return Err(bad(format!("{what}不能自己和自己对抗")));
+                }
+                if c.passive {
+                    return Err(bad(format!("{what}不能既是被动检定又是对抗")));
+                }
+            }
+            if c.passive && c.repeat {
+                return Err(bad(format!("{what}是被动检定，没有再试一说")));
+            }
+            if c.edges.len() > CHECK_EDGES {
+                return Err(bad(format!("{what}的优势劣势最多 {CHECK_EDGES} 条")));
+            }
+            for edge in &c.edges {
+                text(
+                    &format!("{what}的优势劣势的原因"),
+                    &edge.reason,
+                    TITLE_CHARS,
+                )?;
+                seats_in(&format!("{what}的优势劣势"), &edge.seats, cast)?;
+                if let Some(place) = &edge.place {
+                    text(&format!("{what}的优势劣势的地点"), place, TITLE_CHARS)?;
+                }
+                if let Some(milestone) = &edge.milestone {
+                    edge_marks.push((c.id.clone(), milestone.clone()));
+                }
+            }
         }
         if b.checks.len() > BEAT_CHECKS {
             return Err(bad(format!("{what}上的检定最多 {BEAT_CHECKS} 项")));
@@ -251,6 +288,13 @@ pub(super) fn check(script: &StorylineScript) -> Result<()> {
                     return Err(bad(format!("{what}指的检定「{check}」不在剧本里")));
                 }
             }
+        }
+    }
+    for (check, milestone) in edge_marks {
+        if !marks.contains(milestone.as_str()) {
+            return Err(bad(format!(
+                "检定「{check}」的优势劣势指的里程碑「{milestone}」不在剧本里"
+            )));
         }
     }
     Ok(())
@@ -365,6 +409,9 @@ impl Storyline {
             if let StorylineWhen::Gather { place, .. } = &m.when {
                 wanted.insert(place);
             }
+        }
+        for check in script.beats.iter().flat_map(|b| &b.checks) {
+            wanted.extend(check.edges.iter().filter_map(|e| e.place.as_deref()));
         }
         let places = wanted
             .into_iter()
@@ -531,6 +578,7 @@ impl Storyline {
         for id in done {
             self.reach(world, &id, now, None, None);
         }
+        self.notice(world, i);
         if let Some(scene) = &b.scene {
             self.scene = Some(Scene {
                 beat: i,
@@ -918,7 +966,8 @@ impl Storyline {
 
     // ---------- 检定（开着规则套件才有） ----------
 
-    /// 这个人此刻能试的检定：节拍已经发生、轮得到他、他还没试过、也还没人通过
+    /// 这个人此刻能试的检定：节拍已经发生、轮得到他、还没人通过；不能再试的那种他还没试过。
+    /// 被动检定不用人去试，不在里面；对抗的另一方不能试自己这一项。
     fn open_checks(&self, i: usize) -> Vec<&StorylineCheck> {
         let Some(rules) = &self.rules else {
             return vec![];
@@ -927,15 +976,94 @@ impl Storyline {
             .iter()
             .flat_map(|b| &b.checks)
             .filter(|c| {
-                self.among(&c.seats).contains(&i)
-                    && !rules.has_tried(i, &c.id)
+                !c.passive
+                    && self.among(&c.seats).contains(&i)
+                    && c.against.as_ref().is_none_or(|a| a.seat as usize - 1 != i)
+                    && (c.repeat || !rules.has_tried(i, &c.id))
                     && !rules.passed.contains_key(&c.id)
             })
             .collect()
     }
 
-    /// 试一项检定：内核掷 d20 加上这个人的加值，和难度比；经过对所有人公布，通过了的里程碑随之达成。
-    fn attempt(&mut self, world: &mut World, i: usize, action: &GameModeAction) -> Result<String> {
+    /// 这个人此刻试这项检定有优势还是劣势，连同原因：剧本里写的情形成立的、有人帮了一把的。
+    /// 优势和劣势都有就互相抵掉。
+    fn edge_for(
+        &self,
+        world: &World,
+        i: usize,
+        check: &StorylineCheck,
+    ) -> (Option<Edge>, Vec<String>) {
+        let mut reasons = Vec::new();
+        let (mut up, mut down) = (false, false);
+        for e in &check.edges {
+            let mine = e.seats.is_empty() || e.seats.contains(&(i as u32 + 1));
+            let reached = e
+                .milestone
+                .as_ref()
+                .is_none_or(|m| self.reached.contains_key(m));
+            let there = e.place.as_ref().is_none_or(|p| {
+                self.places.get(p).is_some_and(|locale| {
+                    world
+                        .actor(&self.seats[i].id)
+                        .is_some_and(|a| a.locus.locale == *locale)
+                })
+            });
+            if mine && reached && there {
+                match e.effect {
+                    Edge::Advantage => up = true,
+                    Edge::Disadvantage => down = true,
+                }
+                reasons.push(e.reason.trim().to_string());
+            }
+        }
+        let helper = self
+            .rules
+            .as_ref()
+            .and_then(|r| r.helped.get(&check.id))
+            .and_then(|h| h.get(&i));
+        if let Some(&helper) = helper {
+            up = true;
+            reasons.push(format!("{} 帮了一把", self.seats[helper].name));
+        }
+        let edge = match (up, down) {
+            (true, false) => Some(Edge::Advantage),
+            (false, true) => Some(Edge::Disadvantage),
+            _ => None,
+        };
+        (edge, reasons)
+    }
+
+    /// 一项检定给这个人看的那一行：难度或对抗的是谁、能不能再试、此刻的优势劣势，和他每种试法的加值
+    fn check_note(&self, world: &World, i: usize, check: &StorylineCheck) -> String {
+        let mut notes = match &check.against {
+            Some(a) if self.here(world, a.seat as usize - 1) => {
+                format!(
+                    "和 {} 对抗，掷得比对方高才算成",
+                    self.label(a.seat as usize - 1)
+                )
+            }
+            _ => format!("难度 {}", check.dc),
+        };
+        if check.repeat {
+            notes.push_str("，没成可以再试");
+        }
+        match self.edge_for(world, i, check) {
+            (Some(Edge::Advantage), why) => {
+                notes.push_str(&format!("，此刻有优势（{}）", why.join("；")))
+            }
+            (Some(Edge::Disadvantage), why) => {
+                notes.push_str(&format!("，此刻有劣势（{}）", why.join("；")))
+            }
+            _ => {}
+        }
+        match &self.rules {
+            Some(rules) => rules.check_line(i, check, &notes),
+            None => String::new(),
+        }
+    }
+
+    /// target 指的是这个人此刻能试的哪一项检定
+    fn pick_check(&self, i: usize, action: &GameModeAction) -> Result<StorylineCheck> {
         if self.rules.is_none() {
             return Err(bad("这个故事没有开规则，没有检定可试"));
         }
@@ -944,39 +1072,58 @@ impl Storyline {
             return Err(bad("现在没有你能试的检定"));
         }
         let raw = action.target.as_deref().map(str::trim).unwrap_or("");
-        let Some(check) = open
-            .iter()
+        open.iter()
             .find(|c| c.id == raw || c.title.trim() == raw)
             .map(|c| (*c).clone())
-        else {
-            let ids: Vec<&str> = open.iter().map(|c| c.id.as_str()).collect();
-            return Err(bad(format!(
-                "认不出 target「{raw}」：你能试的是 {}",
-                ids.join("、")
-            )));
-        };
+            .ok_or_else(|| {
+                let ids: Vec<&str> = open.iter().map(|c| c.id.as_str()).collect();
+                bad(format!(
+                    "认不出 target「{raw}」：你能试的是 {}",
+                    ids.join("、")
+                ))
+            })
+    }
+
+    /// 试一项检定：内核掷 d20 加上这个人的加值，和难度比（对抗时和对方掷出来的比）；
+    /// 经过对所有人公布，通过了的里程碑随之达成。
+    fn attempt(&mut self, world: &mut World, i: usize, action: &GameModeAction) -> Result<String> {
+        let check = self.pick_check(i, action)?;
         // 用哪种试法：with 里的 skill 或 ability；只有一种试法时可以不填
         let wanted = action
             .with
             .get("skill")
             .or_else(|| action.with.get("ability"))
-            .map(|w| w.trim());
+            .map(|w| w.trim().to_string());
         let way = match wanted {
             Some(key) => check.ways.iter().find(|w| srd5::way_key(w) == key).cloned(),
             None if check.ways.len() == 1 => check.ways.first().cloned(),
             None => None,
         };
         let Some(way) = way else {
-            let keys: Vec<&str> = check.ways.iter().map(srd5::way_key).collect();
+            let keys: Vec<String> = check.ways.iter().map(srd5::way_key).collect();
             return Err(bad(format!(
                 "「{}」要说明用哪种办法：with 里填 skill 或 ability，能用的是 {}",
                 check.title.trim(),
                 keys.join("、")
             )));
         };
+        let (edge, reasons) = self.edge_for(world, i, &check);
+        // 对抗：对方还在场就由他用最拿手的办法应对；不在了就照难度算
+        let rival: Option<(usize, CheckWay)> = check.against.as_ref().and_then(|a| {
+            let other = a.seat as usize - 1;
+            let way = self.rules.as_ref()?.best(other, &a.ways)?.clone();
+            self.here(world, other).then_some((other, way))
+        });
         let now = world.minutes();
         let roll = match &mut self.rules {
-            Some(rules) => rules.attempt(i, &check, &way, now),
+            Some(rules) => rules.attempt(
+                i,
+                &check,
+                &way,
+                edge,
+                rival.as_ref().map(|(other, way)| (*other, way)),
+                now,
+            ),
             None => return Err(bad("这个故事没有开规则，没有检定可试")),
         };
         let passed = roll.success == Some(true);
@@ -988,35 +1135,171 @@ impl Storyline {
             .filter(|t| !t.is_empty())
             .map(|t| format!("（{t}）"))
             .unwrap_or_default();
+        let thrown = match edge {
+            Some(Edge::Advantage) => format!(
+                "有优势（{}），掷两次 d20 得 {} 和 {}，取高的",
+                reasons.join("；"),
+                roll.dice[0],
+                roll.dice[1]
+            ),
+            Some(Edge::Disadvantage) => format!(
+                "有劣势（{}），掷两次 d20 得 {} 和 {}，取低的",
+                reasons.join("；"),
+                roll.dice[0],
+                roll.dice[1]
+            ),
+            None => format!("掷 d20 得 {}", roll.dice[0]),
+        };
+        let against = match (&rival, roll.versus) {
+            (Some((other, other_way)), Some(total)) => format!(
+                "{} 用{}应对，共 {total}",
+                self.label(*other),
+                srd5::way_name(other_way)
+            ),
+            _ => format!("对难度 {}", check.dc),
+        };
+        let outcome = format!(
+            "{thrown}，{:+} 共 {}，{against}：{verdict}",
+            roll.modifier, roll.total
+        );
         let line = format!(
-            "{}检定：{} 试「{}」{said}，用{}，掷 d20 得 {}，{:+} 共 {}，对难度 {}：{verdict}",
+            "{}检定：{} 试「{}」{said}，用{}，{outcome}",
             self.tag(),
             self.label(i),
             check.title.trim(),
             roll.way,
-            roll.dice[0],
-            roll.modifier,
-            roll.total,
-            check.dc
         );
         self.tell(world, &self.everyone(), &line);
         world.log(EventInfo::default(), line);
         if passed {
-            let done: Vec<String> = self
-                .script
-                .milestones
-                .iter()
-                .filter(|m| matches!(&m.when, StorylineWhen::Check { check: c } if *c == check.id))
-                .map(|m| m.id.clone())
-                .collect();
-            for id in done {
-                self.reach(world, &id, now, Some(i), None);
+            self.pass(world, &check.id, i);
+        }
+        Ok(outcome)
+    }
+
+    /// 检定通过了：靠它达成的里程碑记在这个人名下
+    fn pass(&mut self, world: &mut World, check: &str, i: usize) {
+        let now = world.minutes();
+        let done: Vec<String> = self
+            .script
+            .milestones
+            .iter()
+            .filter(|m| matches!(&m.when, StorylineWhen::Check { check: c } if c == check))
+            .map(|m| m.id.clone())
+            .collect();
+        for id in done {
+            self.reach(world, &id, now, Some(i), None);
+        }
+    }
+
+    /// 帮一把：自己不试这项检定，让同在一处的另一个人下一次试它时有优势。
+    fn help(&mut self, world: &mut World, i: usize, action: &GameModeAction) -> Result<String> {
+        let check = self.pick_check(i, action)?;
+        let raw = action.with.get("seat").map(|s| s.trim()).unwrap_or("");
+        let digits: String = raw.chars().take_while(char::is_ascii_digit).collect();
+        let other = digits
+            .parse::<usize>()
+            .ok()
+            .filter(|n| (1..=self.seats.len()).contains(n))
+            .map(|n| n - 1)
+            .or_else(|| self.seats.iter().position(|s| s.name == raw))
+            .ok_or_else(|| bad("帮谁：with 里填 seat（对方的座号）"))?;
+        if other == i || !self.open_checks(other).iter().any(|c| c.id == check.id) {
+            return Err(bad(format!(
+                "{} 现在试不了「{}」，帮不上",
+                self.label(other),
+                check.title.trim()
+            )));
+        }
+        let place = |k: usize| {
+            world
+                .actor(&self.seats[k].id)
+                .map(|a| a.locus.locale.clone())
+        };
+        if place(i) != place(other) {
+            return Err(bad(format!(
+                "要和 {} 在同一个地方才帮得上",
+                self.label(other)
+            )));
+        }
+        if let Some(rules) = &mut self.rules {
+            rules.tried.entry(check.id.clone()).or_default().push(i);
+            rules
+                .helped
+                .entry(check.id.clone())
+                .or_default()
+                .insert(other, i);
+        }
+        let line = format!(
+            "{}{} 帮 {} 一把：{} 下一次试「{}」有优势",
+            self.tag(),
+            self.label(i),
+            self.label(other),
+            self.seats[other].name,
+            check.title.trim()
+        );
+        self.tell(world, &self.everyone(), &line);
+        world.log(EventInfo::default(), line);
+        Ok(format!("帮上了：{} 下一次试有优势", self.seats[other].name))
+    }
+
+    /// 节拍到点时的被动检定：不掷骰，10 加上最拿手的那种办法的加值，够难度的人自己留意到（只告诉他本人）；
+    /// 留意到的人里数值最高的那个算通过了这项检定。
+    fn notice(&mut self, world: &mut World, beat: usize) {
+        let Some(rules) = &self.rules else {
+            return;
+        };
+        let mut found: Vec<(String, usize, i32)> = Vec::new();
+        for c in self.script.beats[beat].checks.iter().filter(|c| c.passive) {
+            for i in self.among(&c.seats) {
+                if !self.here(world, i) {
+                    continue;
+                }
+                let Some(way) = rules.best(i, &c.ways) else {
+                    continue;
+                };
+                let value = 10 + rules.bonus(i, way);
+                if value >= c.dc as i32 {
+                    found.push((c.id.clone(), i, value));
+                }
             }
         }
-        Ok(format!(
-            "掷 d20 得 {}，{:+} 共 {}，对难度 {}：{verdict}",
-            roll.dice[0], roll.modifier, roll.total, check.dc
-        ))
+        for check in self.script.beats[beat].checks.clone() {
+            let mut who: Vec<(usize, i32)> = found
+                .iter()
+                .filter(|(id, _, _)| *id == check.id)
+                .map(|(_, i, value)| (*i, *value))
+                .collect();
+            if who.is_empty() {
+                continue;
+            }
+            for (i, _) in &who {
+                let text = format!(
+                    "{}你留意到了：{}（{}）。别人不一定看出来了。",
+                    self.tag(),
+                    check.title.trim(),
+                    check.detail.trim()
+                );
+                self.call(world, *i, &text);
+            }
+            who.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            let (best, _) = who[0];
+            let names: Vec<String> = who.iter().map(|(i, _)| self.label(*i)).collect();
+            world.log(
+                EventInfo::default(),
+                format!(
+                    "{}被动检定「{}」（难度 {}）：{} 留意到了",
+                    self.tag(),
+                    check.title.trim(),
+                    check.dc,
+                    names.join("、")
+                ),
+            );
+            if let Some(rules) = &mut self.rules {
+                rules.passed.entry(check.id.clone()).or_insert(best);
+            }
+            self.pass(world, &check.id, best);
+        }
     }
 
     fn declare(&mut self, world: &mut World, i: usize, action: &GameModeAction) -> Result<String> {
@@ -1212,7 +1495,7 @@ impl Rules for Storyline {
                 actions.push("declare".into());
             }
             if !self.open_checks(i).is_empty() {
-                actions.push("check".into());
+                actions.extend(["check".to_string(), "help".to_string()]);
             }
         }
         let skip = self.lines.len().saturating_sub(RECENT_LINES);
@@ -1242,10 +1525,10 @@ impl Rules for Storyline {
             actions,
             sheet: self.rules.as_ref().map(|r| r.sheet_line(i)),
             checks: match &self.rules {
-                Some(rules) if !self.ended && !self.seats[i].gone => self
+                Some(_) if !self.ended && !self.seats[i].gone => self
                     .open_checks(i)
                     .into_iter()
-                    .map(|c| rules.check_line(i, c))
+                    .map(|c| self.check_note(world, i, c))
                     .collect(),
                 _ => vec![],
             },
@@ -1268,7 +1551,10 @@ reason 写为什么这么选（只给旁观的人看）。\
             format!(
                 "{base}这个故事开着第五版规则：storyline.sheet 是你的角色卡，storyline.checks 是你此刻能试的检定。\
 check 试一项检定（target 填检定的编号；有几种办法时在 with 里填 skill 或 ability 选一种，text 写你具体怎么做）：\
-由骰子定成败——掷 d20 加上你这种办法的加值，不低于难度就成；每项检定每人只能试一次，所以挑你拿手的办法，或者让更拿手的人去试。\
+由骰子定成败——掷 d20 加上你这种办法的加值，不低于难度就成（写着对抗的，要掷得比对方高）；\
+除了写着可以再试的，每项检定每人只能试一次，所以挑你拿手的办法，或者让更拿手的人去试。\
+有优势时掷两次取高的，有劣势时取低的。help 帮一把（target 填检定的编号，with 里填 seat：对方的座号）：\
+你自己不试这一项，和你在同一个地方的那个人下一次试它有优势。\
 开着规则时不能直接对人推搡、抢、偷。"
             )
         } else {
@@ -1302,9 +1588,14 @@ check 试一项检定（target 填检定的编号；有几种办法时在 with �
             "speak" | "pass" => self.speak(world, i, action),
             "declare" => self.declare(world, i, action),
             "check" => self.attempt(world, i, action),
+            "help" if self.rules.is_some() => self.help(world, i, action),
             other => Err(bad(format!(
                 "故事里没有「{other}」这个动作：能交的是 speak、pass、declare{}",
-                if self.rules.is_some() { "、check" } else { "" }
+                if self.rules.is_some() {
+                    "、check、help"
+                } else {
+                    ""
+                }
             ))),
         }
     }

@@ -51,6 +51,7 @@ fn mode_action_takes_named_parameters_only_when_the_open_mode_asks_for_them() {
             cha: 8,
         },
         skills: vec!["athletics".into()],
+        expertise: vec![],
     };
     let mode_action = |ruleset: Option<RulesetChoice>| {
         let mut w = world();

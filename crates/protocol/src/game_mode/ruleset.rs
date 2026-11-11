@@ -56,9 +56,12 @@ pub struct Srd5Sheet {
     /// 等级 1–3
     pub level: u32,
     pub abilities: Abilities,
-    /// 熟练的技能（SKILLS 里的编号）
+    /// 熟练的技能（SKILLS 里的编号）：职业给的几项加上背景给的两项
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
+    /// 专精的技能（熟练加值算两次）：只有游荡者有，要在 skills 里
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expertise: Vec<String>,
 }
 
 /// 节拍上的一项检定：到了这个节拍就可以试，难度是 dc，可以用 ways 里的任一种办法
@@ -74,15 +77,59 @@ pub struct StorylineCheck {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seats: Vec<u32>,
     pub ways: Vec<CheckWay>,
+    /// 没成可以再试；不写是每人只能试一次
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub repeat: bool,
+    /// 被动检定：不掷骰，节拍到点时拿 10 + 加值和难度比，过了的人自己留意到（别人不知道）
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub passive: bool,
+    /// 对抗：不和难度比，和这个人掷出来的比（他用自己最拿手的那种办法），平手算没成
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub against: Option<CheckContest>,
+    /// 什么情形下有优势或劣势（掷两次取高或取低）；两样都有就互相抵掉
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edges: Vec<CheckEdge>,
 }
 
-/// 试的办法：一项属性，可以再带一项技能（熟练的加熟练加值）
+/// 对抗的另一方：谁、能用哪几种办法
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckContest {
+    pub seat: u32,
+    pub ways: Vec<CheckWay>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Edge {
+    Advantage,
+    Disadvantage,
+}
+
+/// 一条优势或劣势：milestone 达成了、或者人在 place 时生效（都不写就一直生效）；seats 空着是对所有人
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckEdge {
+    pub effect: Edge,
+    /// 为什么：给试的人和旁观的人看
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub milestone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seats: Vec<u32>,
+}
+
+/// 试的办法：一项属性，可以再带一项技能（熟练的加熟练加值）；save 是这项属性的豁免（职业熟练的加熟练加值）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CheckWay {
     pub ability: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub save: bool,
 }
 
 /// 掷的一次骰：谁、为了什么、怎么算的、结果
@@ -104,6 +151,12 @@ pub struct DiceRoll {
     pub dc: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub success: Option<bool>,
+    /// 有优势或劣势时：dice 里是两颗，取了高的或低的那颗
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge: Option<Edge>,
+    /// 对抗时对方掷出来的总数
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub versus: Option<i32>,
 }
 
 /// 名册里规则套件的那一块：每个座位的角色卡写成一行、最近掷的骰
