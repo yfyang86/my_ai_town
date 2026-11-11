@@ -13,6 +13,7 @@ use protocol::{
     SwordholderRules, SwordholderView, TideCircle, TideFlare, TideNewsKind, TidePhase, TideView,
     WerewolfOut, WerewolfPhase, WerewolfRole, WerewolfSide, WerewolfView,
 };
+use protocol::{CheckContest, CheckEdge, Edge};
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -999,6 +1000,7 @@ fn sheet(class: &str, scores: [u32; 6], skills: &[&str]) -> Srd5Sheet {
             cha,
         },
         skills: skills.iter().map(|s| s.to_string()).collect(),
+        expertise: vec![],
     }
 }
 
@@ -1012,12 +1014,29 @@ fn lighthouse_sheets() -> Vec<Srd5Sheet> {
     ]
 }
 
+/// 一项什么都没填的检定，测试里用它补齐没写的字段
+fn plain_check() -> StorylineCheck {
+    StorylineCheck {
+        id: String::new(),
+        title: String::new(),
+        detail: String::new(),
+        dc: 10,
+        seats: vec![],
+        ways: vec![],
+        repeat: false,
+        passive: false,
+        against: None,
+        edges: vec![],
+    }
+}
+
 /// 第一个节拍上挂两项检定：撬门（1、2 号能试，力量·运动或敏捷·巧手，难度低到一定成）、
 /// 看懂旧账（谁都能试，智力·调查，难度高到一定不成）；撬开门是一个里程碑。
 fn script_with_checks() -> StorylineScript {
     let way = |ability: &str, skill: Option<&str>| CheckWay {
         ability: ability.into(),
         skill: skill.map(str::to_owned),
+        save: false,
     };
     let mut script = lighthouse_script();
     script.beats[0].checks = vec![
@@ -1031,6 +1050,7 @@ fn script_with_checks() -> StorylineScript {
                 way("str", Some("athletics")),
                 way("dex", Some("sleight_of_hand")),
             ],
+            ..plain_check()
         },
         StorylineCheck {
             id: "ledger".into(),
@@ -1039,6 +1059,7 @@ fn script_with_checks() -> StorylineScript {
             dc: 30,
             seats: vec![],
             ways: vec![way("int", Some("investigation"))],
+            ..plain_check()
         },
     ];
     script.milestones.push(StorylineMilestone {
@@ -1149,7 +1170,7 @@ fn storyline_with_fifth_edition_rules_resolves_scripted_checks_with_dice() {
         .sheet
         .as_deref()
         .unwrap()
-        .starts_with("战士 1 级 · 力量 16(+3)"));
+        .starts_with("战士 1 级 · 生命 12 · 力量 16(+3)"));
     assert!(c.checks.is_empty(), "节拍还没到，没有检定可试");
 
     w.step(1.1 * HOUR);
@@ -1218,6 +1239,209 @@ fn storyline_with_fifth_edition_rules_resolves_scripted_checks_with_dice() {
     )
     .is_ok());
 
+    w.set_game_mode(None).unwrap();
+    no_trace(&w);
+}
+
+/// 检定的其余几样：被动检定不掷骰、只有留意到的人知道；豁免用职业的熟练；对抗和对方掷出来的比、两边的骰都记下；
+/// 可以再试的检定没成还在；优势掷两颗取高的，优势和劣势都有就抵掉；帮一把的人自己不试、被帮的人下一次有优势，
+/// 用掉就没了。
+#[test]
+fn fifth_edition_checks_cover_passive_saves_contests_edges_and_help() {
+    let people = [
+        ("r1", "阿塔", "loc_a"),
+        ("r2", "老镇", "loc_a"),
+        ("r3", "阿渔", "loc_a"),
+        ("r4", "远客", "loc_a"),
+    ];
+    let way = |ability: &str, skill: Option<&str>, save: bool| CheckWay {
+        ability: ability.into(),
+        skill: skill.map(str::to_owned),
+        save,
+    };
+    let check = |id: &str, dc: u32, seats: &[u32], ways: Vec<CheckWay>| StorylineCheck {
+        id: id.into(),
+        title: format!("检定{id}"),
+        detail: "试试看".into(),
+        dc,
+        seats: seats.to_vec(),
+        ways,
+        ..plain_check()
+    };
+    let mut script = lighthouse_script();
+    script.beats[0].checks = vec![
+        StorylineCheck {
+            passive: true,
+            ..check(
+                "watch",
+                13,
+                &[],
+                vec![way("wis", Some("perception"), false)],
+            )
+        },
+        check("hold", 2, &[1], vec![way("con", None, true)]),
+        StorylineCheck {
+            against: Some(CheckContest {
+                seat: 2,
+                ways: vec![
+                    way("cha", Some("deception"), false),
+                    way("cha", None, false),
+                ],
+            }),
+            ..check("bluff", 10, &[3], vec![way("wis", Some("insight"), false)])
+        },
+        StorylineCheck {
+            repeat: true,
+            edges: vec![
+                CheckEdge {
+                    effect: Edge::Advantage,
+                    reason: "天亮了看得清".into(),
+                    milestone: Some("opened".into()),
+                    place: None,
+                    seats: vec![],
+                },
+                CheckEdge {
+                    effect: Edge::Disadvantage,
+                    reason: "外乡人不认得路".into(),
+                    milestone: None,
+                    place: None,
+                    seats: vec![4],
+                },
+            ],
+            ..check("pry", 30, &[], vec![way("str", Some("athletics"), false)])
+        },
+        check(
+            "lift",
+            30,
+            &[1, 2],
+            vec![way("str", Some("athletics"), false)],
+        ),
+    ];
+    script.milestones.push(StorylineMilestone {
+        id: "noticed".into(),
+        title: "有人看出来了".into(),
+        detail: "有人留意到了".into(),
+        when: StorylineWhen::Check {
+            check: "watch".into(),
+        },
+        secret: false,
+    });
+    // 优势劣势指着不存在的里程碑、被动检定又要对抗：开不了
+    let mut w = common::world_with(common::tiny_topology(), 7.0 * HOUR, &people);
+    let open = |w: &mut World, script: &StorylineScript| {
+        w.set_game_mode(Some(&GameModeChoice::Storyline {
+            seed: Some(11),
+            script: Box::new(script.clone()),
+            ruleset: Some(RulesetChoice::Srd5 {
+                sheets: lighthouse_sheets(),
+            }),
+        }))
+    };
+    let mut dangling = script.clone();
+    dangling.beats[0].checks[3].edges[0].milestone = Some("nowhere".into());
+    assert!(open(&mut w, &dangling).is_err());
+    let mut both = script.clone();
+    both.beats[0].checks[2].passive = true;
+    assert!(open(&mut w, &both).is_err());
+    open(&mut w, &script).unwrap();
+    w.step(1.1 * HOUR);
+    let rolls = |w: &World| storyline(w).ruleset.unwrap().rolls;
+
+    // 被动检定：牧师感知 16，10+3 够难度 13，只有她留意到（收到通知）；不掷骰；里程碑记在她名下
+    assert!(rolls(&w).is_empty());
+    let noticed = |w: &World, id: &str| {
+        w.actor(id)
+            .unwrap()
+            .journal
+            .events_after(0)
+            .iter()
+            .any(|e| e.text.contains("你留意到了"))
+    };
+    assert!(noticed(&w, "r3") && !noticed(&w, "r1") && !noticed(&w, "r4"));
+    let v = storyline(&w);
+    let mark = v.milestones.iter().find(|m| m.id == "noticed").unwrap();
+    assert_eq!((mark.done, mark.by), (true, Some(3)));
+    assert!(story_context(&w, "r3")
+        .checks
+        .iter()
+        .all(|c| !c.contains("watch")));
+
+    // 豁免：战士体质豁免熟练，+2+2
+    try_check(&mut w, "r1", "hold", None).unwrap();
+    let roll = rolls(&w).pop().unwrap();
+    assert_eq!(
+        (roll.way.as_str(), roll.formula.as_str()),
+        ("体质豁免", "d20+4")
+    );
+
+    // 对抗：3 号洞悉 +5 对 2 号（用他拿手的那种，魅力 +2）；两边的骰都记下，比对方高才算成；2 号自己不能试这一项
+    assert!(story_context(&w, "r3")
+        .checks
+        .iter()
+        .any(|c| c.contains("和 2 号 老镇 对抗")));
+    assert!(try_check(&mut w, "r2", "bluff", None).is_err());
+    try_check(&mut w, "r3", "bluff", None).unwrap();
+    let all = rolls(&w);
+    let (theirs, mine) = (&all[all.len() - 2], &all[all.len() - 1]);
+    assert_eq!((theirs.seat, mine.seat), (2, 3));
+    assert_eq!((theirs.modifier, mine.modifier), (2, 5));
+    assert_eq!(mine.versus, Some(theirs.total));
+    assert_eq!(mine.success, Some(mine.total > theirs.total));
+    assert!(mine.dc.is_none());
+
+    // 可以再试的检定：有优势（里程碑达成了），掷两颗取高的；难度 30 不成，还能再试
+    let line = story_context(&w, "r1").checks.join("\n");
+    assert!(
+        line.contains("没成可以再试") && line.contains("此刻有优势（天亮了看得清）"),
+        "{line}"
+    );
+    for _ in 0..2 {
+        let result = try_check(&mut w, "r1", "pry", None).unwrap();
+        assert!(
+            result.contains("取高的") && result.contains("失败"),
+            "{result}"
+        );
+        let roll = rolls(&w).pop().unwrap();
+        assert_eq!(roll.edge, Some(Edge::Advantage));
+        assert_eq!(roll.dice.len(), 2);
+        assert_eq!(roll.total, *roll.dice.iter().max().unwrap() as i32 + 5);
+    }
+    // 4 号优势和劣势都有：抵掉，照常掷一颗
+    try_check(&mut w, "r4", "pry", None).unwrap();
+    let roll = rolls(&w).pop().unwrap();
+    assert_eq!((roll.edge, roll.dice.len()), (None, 1));
+
+    // 帮一把：帮不了自己、帮不了试不了这一项的人；2 号帮 1 号，自己就不试了；1 号下一次有优势，用掉就没了
+    let help = |w: &mut World, id: &str, seat: &str| {
+        let action = GameModeAction {
+            action: "help".into(),
+            target: Some("lift".into()),
+            text: None,
+            reason: None,
+            with: [("seat".to_string(), seat.to_string())].into(),
+        };
+        w.game_mode_act(id, &action).map_err(|e| e.to_string())
+    };
+    assert!(help(&mut w, "r2", "2").is_err());
+    assert!(help(&mut w, "r2", "3").is_err());
+    help(&mut w, "r2", "1").unwrap();
+    assert!(try_check(&mut w, "r2", "lift", None).is_err());
+    assert!(story_context(&w, "r1")
+        .checks
+        .join("\n")
+        .contains("老镇 帮了一把"));
+    let result = try_check(&mut w, "r1", "lift", None).unwrap();
+    assert!(result.contains("老镇 帮了一把"), "{result}");
+    assert_eq!(rolls(&w).pop().unwrap().edge, Some(Edge::Advantage));
+    // 读档后骰子接着掷的一样
+    let mut copy = common::restore(
+        &w,
+        common::world_with(common::tiny_topology(), 7.0 * HOUR, &people),
+    );
+    for world in [&mut w, &mut copy] {
+        try_check(world, "r2", "pry", None).unwrap();
+    }
+    assert_eq!(rolls(&w), rolls(&copy));
     w.set_game_mode(None).unwrap();
     no_trace(&w);
 }

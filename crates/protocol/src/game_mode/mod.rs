@@ -8,8 +8,8 @@ mod tide;
 mod werewolf;
 
 pub use ruleset::{
-    Abilities, CheckWay, DiceRoll, RulesetChoice, RulesetView, Srd5Sheet, StorylineCheck,
-    ABILITIES, SKILLS,
+    Abilities, CheckContest, CheckEdge, CheckWay, DiceRoll, Edge, RulesetChoice, RulesetView,
+    Srd5Sheet, StorylineCheck, ABILITIES, SKILLS,
 };
 pub use storyline::{
     StorylineBeat, StorylineBeatState, StorylineBeatView, StorylineContext, StorylineLine,

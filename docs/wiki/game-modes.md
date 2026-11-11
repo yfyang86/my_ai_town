@@ -116,13 +116,18 @@ Only one exists: **fifth-edition rules** from SRD 5.1 (`RulesetChoice::Srd5`), i
 | Piece | Where | Notes |
 | --- | --- | --- |
 | Dice | `game_mode/dice.rs` | Seeded splitmix64 with rejection sampling; state is saved, so a reload continues the same sequence. The kernel is the only thing that rolls |
-| Sheet | `Srd5Sheet` | Class label (fighter, rogue, cleric, wizard), level 1–3, six abilities, skill proficiencies. Validated at open |
-| Check | `StorylineCheck` on a beat | DC, who may try, one or more ways (ability, optional skill). Open once its beat has fired |
-| Resolution | `Srd5::attempt` | d20 + ability modifier + proficiency if proficient vs. DC. One attempt per seat; a passed check closes for everyone |
+| Class data | `data/rules/5e/classes.json`, embedded at compile time | Hit die, saving-throw proficiencies, skill list and count, expertise count. Every entry cites its SRD section; a test enforces it |
+| Sheet | `Srd5Sheet` | Class, level 1–3, six abilities, skills (class picks plus two from background), expertise (rogue). Validated at open against the class data. Hit points and all bonuses are derived, never typed in |
+| Check | `StorylineCheck` on a beat | DC, who may try, one or more ways. A way is an ability with an optional skill, or a saving throw (`save`). Open once its beat has fired |
+| Resolution | `Srd5::attempt` | d20 + ability modifier + proficiency (twice with expertise) vs. DC. One attempt per seat unless `repeat`; a passed check closes for everyone |
+| Advantage / disadvantage | `CheckEdge` on a check | Applies when a milestone has been reached and/or the character is at a place, for the named seats. Two dice, keep the higher or lower; both at once cancel |
+| Contest | `StorylineCheck.against` | The other seat responds with their best listed way, rolled by the kernel; the challenger must beat it, ties fail. Both rolls are logged |
+| Passive check | `StorylineCheck.passive` | No roll: when the beat fires, 10 + best bonus vs. DC. Those who make it are told privately; the highest is credited |
+| Help | `mode_action help` | `with.seat` names whom; the helper gives up their own attempt, must be in the same place, and the helped character's next attempt has advantage |
 | Milestone | `StorylineWhen::Check` | Reached when someone passes; invisible when no ruleset is on |
 | Roll log | `RulesetView.rolls` | Formula, dice, modifier, total, DC, outcome — last 40 |
 
-`mode_action check`: `target` is the check id; `with.skill` or `with.ability` picks the way (optional when there is only one). Each resident's context lists the checks open to them with *their own* bonus for each way, so the model can choose its best approach or leave it to someone better.
+`mode_action check`: `target` is the check id; `with.skill` or `with.ability` picks the way (optional when there is only one; a save's key is `<ability>_save`). Each resident's context lists the checks open to them with *their own* bonus for each way, so the model can choose its best approach or leave it to someone better.
 
 With a ruleset on, `judge` refuses shoving, robbing and stealing: harming someone will go through combat rules. The plan for the rest (combat, magic, rest, progression, a model narrator) is in `Sprints/ruleset-5e/plan.md`.
 

@@ -1463,12 +1463,31 @@ fn storyline_script() -> StorylineScript {
                     CheckWay {
                         ability: "int".into(),
                         skill: Some("investigation".into()),
+                        save: false,
                     },
                     CheckWay {
-                        ability: "dex".into(),
+                        ability: "con".into(),
                         skill: None,
+                        save: true,
                     },
                 ],
+                repeat: true,
+                passive: false,
+                against: Some(CheckContest {
+                    seat: 2,
+                    ways: vec![CheckWay {
+                        ability: "cha".into(),
+                        skill: Some("deception".into()),
+                        save: false,
+                    }],
+                }),
+                edges: vec![CheckEdge {
+                    effect: Edge::Advantage,
+                    reason: "有人帮着照亮".into(),
+                    milestone: Some("opened".into()),
+                    place: Some("广场".into()),
+                    seats: vec![1],
+                }],
             }],
         }],
         milestones: vec![
@@ -1615,6 +1634,8 @@ fn storyline_roster() -> ServerMsg {
                     total: 17,
                     dc: Some(13),
                     success: Some(true),
+                    edge: Some(Edge::Disadvantage),
+                    versus: Some(11),
                 }],
             }),
         }));
@@ -1698,9 +1719,10 @@ pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
                                     cha: 8,
                                 },
                                 skills: vec!["athletics".into(), "intimidation".into()],
+                                expertise: vec![],
                             },
                             Srd5Sheet {
-                                class: "wizard".into(),
+                                class: "rogue".into(),
                                 level: 1,
                                 abilities: Abilities {
                                     str: 8,
@@ -1710,7 +1732,8 @@ pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
                                     wis: 13,
                                     cha: 10,
                                 },
-                                skills: vec![],
+                                skills: vec!["stealth".into()],
+                                expertise: vec!["stealth".into()],
                             },
                         ],
                     }),

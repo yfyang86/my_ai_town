@@ -1,0 +1,47 @@
+{
+  "source": "System Reference Document 5.1, Wizards of the Coast LLC, CC BY 4.0 — see licenses/SRD-5.1.txt",
+  "classes": [
+    {
+      "id": "fighter",
+      "name": "战士",
+      "srd": "Classes > Fighter > Class Features",
+      "hit_die": 10,
+      "saves": ["str", "con"],
+      "skill_count": 2,
+      "skills": ["acrobatics", "animal_handling", "athletics", "history", "insight", "intimidation", "perception", "survival"],
+      "expertise": 0
+    },
+    {
+      "id": "rogue",
+      "name": "游荡者",
+      "srd": "Classes > Rogue > Class Features; Expertise",
+      "hit_die": 8,
+      "saves": ["dex", "int"],
+      "skill_count": 4,
+      "skills": ["acrobatics", "athletics", "deception", "insight", "intimidation", "investigation", "perception", "performance", "persuasion", "sleight_of_hand", "stealth"],
+      "expertise": 2
+    },
+    {
+      "id": "cleric",
+      "name": "牧师",
+      "srd": "Classes > Cleric > Class Features",
+      "hit_die": 8,
+      "saves": ["wis", "cha"],
+      "skill_count": 2,
+      "skills": ["history", "insight", "medicine", "persuasion", "religion"],
+      "expertise": 0
+    },
+    {
+      "id": "wizard",
+      "name": "法师",
+      "srd": "Classes > Wizard > Class Features",
+      "hit_die": 6,
+      "saves": ["int", "wis"],
+      "skill_count": 2,
+      "skills": ["arcana", "history", "insight", "investigation", "medicine", "religion"],
+      "expertise": 0
+    }
+  ],
+  "background_skills": 2,
+  "background_srd": "Backgrounds: a background grants two skill proficiencies"
+}

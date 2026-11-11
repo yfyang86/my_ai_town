@@ -774,8 +774,16 @@ export interface Srd5Sheet {
   /** 1–3 */
   level: number
   abilities: { str: number; dex: number; con: number; int: number; wis: number; cha: number }
-  /** 熟练的技能编号（athletics、stealth……） */
+  /** 熟练的技能编号（athletics、stealth……）：职业给的几项加背景给的两项 */
   skills?: string[]
+  /** 专精的技能（熟练加值算两次）：只有游荡者有，最多两项 */
+  expertise?: string[]
+}
+/** 试的办法：属性，可以带一项技能；save 是这项属性的豁免 */
+export interface CheckWay {
+  ability: string
+  skill?: string
+  save?: boolean
 }
 /** 节拍上的一项检定：难度 dc，可以用 ways 里的任一种办法试 */
 export interface StorylineCheck {
@@ -785,7 +793,21 @@ export interface StorylineCheck {
   dc: number
   /** 能试的座号；不写是所有人 */
   seats?: number[]
-  ways: { ability: string; skill?: string }[]
+  ways: CheckWay[]
+  /** 没成可以再试 */
+  repeat?: boolean
+  /** 被动检定：不掷骰，10 + 加值够难度的人自己留意到 */
+  passive?: boolean
+  /** 对抗：和这个人掷出来的比，不看难度 */
+  against?: { seat: number; ways: CheckWay[] }
+  /** 什么情形下有优势或劣势 */
+  edges?: {
+    effect: 'advantage' | 'disadvantage'
+    reason: string
+    milestone?: string
+    place?: string
+    seats?: number[]
+  }[]
 }
 /** 掷的一次骰 */
 export interface DiceRoll {
@@ -799,6 +821,10 @@ export interface DiceRoll {
   total: number
   dc?: number
   success?: boolean
+  /** 有优势或劣势时 dice 里是两颗 */
+  edge?: 'advantage' | 'disadvantage'
+  /** 对抗时对方的总数 */
+  versus?: number
 }
 export interface RulesetView {
   id: string
