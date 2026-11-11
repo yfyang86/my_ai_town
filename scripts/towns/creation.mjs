@@ -21,6 +21,7 @@ const DRAFT_TTL_MS = 2 * 60 * 60 * 1000
 const TASK_RETENTION_MS = 30000
 const MAX_REQUEST_ID = 120
 const RUST_VALIDATE_TIMEOUT_MS = 10000
+const STORY_TIMEOUT_MS = 300000
 export class DraftStore {
   #entries = new Map()
   /** 同一份草稿按操作编号读取。 */
@@ -185,7 +186,8 @@ export function createCreation({
           presets: STYLE_PRESETS.map(({ id, name }) => ({ id, name })),
           mock: mockLlm,
         },
-        { signal }
+        // 真模型写一整个故事要一分多钟（DeepSeek 六个角色 65 秒），比一句话建镇久得多
+        { signal, timeout: STORY_TIMEOUT_MS }
       )
     )
 

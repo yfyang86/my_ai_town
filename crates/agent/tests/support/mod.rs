@@ -24,6 +24,11 @@ pub fn catalog() -> Catalog {
 }
 
 pub fn world() -> World {
+    world_with_props(vec![])
+}
+
+/// 同一个世界，另外多放几件道具（做梦的测试要一张床）。
+pub fn world_with_props(extra: Vec<Value>) -> World {
     let mut data: Value =
         serde_json::from_str(include_str!("../fixtures/two_places.json")).unwrap();
     data["props"] = json!([
@@ -37,6 +42,7 @@ pub fn world() -> World {
         .as_array_mut()
         .unwrap()
         .push(json!({"verb":"查看公告栏","duration_minutes":1}));
+    data["props"].as_array_mut().unwrap().extend(extra);
     let mut w = World::new(
         Topology::from_json(&data.to_string(), &catalog()).unwrap(),
         420.0,

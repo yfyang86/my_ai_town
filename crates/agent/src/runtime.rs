@@ -298,6 +298,19 @@ impl ResidentRuntime {
                 .remove(&actor)
                 .expect("会话列表来自同一张表");
             session.memory.ingest(world, &actor);
+            // 睡没睡着：在场、能行动、但留意不到周围，就是睡着了。刚睡醒时先做不用模型的那一步整理
+            let asleep = world
+                .actor(&actor)
+                .is_some_and(|a| a.present() && !a.needs.incapacitated())
+                && !world.awake(&actor);
+            let reflected = session.notebook.through_event;
+            if session
+                .memory
+                .note_sleep(asleep, world.minutes(), reflected)
+            {
+                let data = json!({"material": session.memory.dream_material().len()});
+                self.record(world, &session, Trace::new("woke_to_dream", data));
+            }
             if world.actor(&actor).is_none_or(|a| a.possession.is_none()) {
                 self.resolve_pending(world, &mut session);
                 self.wake_for_chat_turn(world, &mut session);
@@ -386,6 +399,9 @@ impl ResidentRuntime {
         let round = self.plan_round(world, s)?;
         let kind = round.kind();
         let tools = match &round {
+            PlannedRound::Reflection(batch) if !batch.dream.is_empty() => {
+                tools::dream_definitions()
+            }
             PlannedRound::Reflection(batch) => {
                 tools::reflection_definitions(has_read(world, &s.actor_id, batch.through))
             }
@@ -423,7 +439,10 @@ impl ResidentRuntime {
         // 不在交谈轮次说明交谈已结束，本场对话记录不再需要。
         s.chat = Default::default();
         if !world.interactions().has_talk_invitation(&s.actor_id) {
+            // 睡醒了但新记忆不够多：这一觉不做梦
+            s.memory.dream_due();
             if let Some(batch) = crate::notebook::plan_reflection(world, s) {
+                let dreaming = !batch.dream.is_empty();
                 let docs = self.docs(world, s);
                 let fitted = reflection::fit_reflection(
                     world,
@@ -438,7 +457,12 @@ impl ResidentRuntime {
                 }
                 s.notebook.request = None;
                 s.notebook.reading_dialogue.clear();
-                s.notebook.retry_after = world.minutes() + REFLECTION_INTERVAL;
+                if dreaming {
+                    // 梦的材料放不进窗口：这一觉不做梦，不耽误平常的整理
+                    s.memory.skip_dream();
+                } else {
+                    s.notebook.retry_after = world.minutes() + REFLECTION_INTERVAL;
+                }
                 let data = json!({
                     "reason": "单条经历与整理上下文超过窗口，原文保留，继续正常决策",
                     "retry_after": s.notebook.retry_after
@@ -459,7 +483,11 @@ impl ResidentRuntime {
         tools_json: &str,
     ) -> Draft {
         let docs = self.docs(world, s);
-        let messages = reflection::messages(world, s, batch, &docs);
+        let messages = if batch.dream.is_empty() {
+            reflection::messages(world, s, batch, &docs)
+        } else {
+            reflection::dream_messages(world, s, batch, &docs)
+        };
         let sent_bytes = wire_bytes(&messages) + tools_json.len() as u64;
         let usage = ContextUsage {
             kind: RequestKind::Reflection,

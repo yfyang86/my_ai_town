@@ -28,6 +28,8 @@ pub enum ToolName {
     MemorySearch,
     MemoryRead,
     Reflect,
+    /// 做梦那一轮专用（走整理轮次，只在睡醒后的那一批里发给模型）
+    Dream,
     ReadContent,
     Observe,
     Recall,
@@ -56,6 +58,7 @@ impl ToolName {
             Self::MemorySearch => "memory_search",
             Self::MemoryRead => "memory_read",
             Self::Reflect => "reflect",
+            Self::Dream => "dream",
             Self::ReadContent => "read_content",
             Self::Observe => "observe",
             Self::Recall => "recall",
@@ -72,8 +75,8 @@ impl ToolName {
     /// 各类轮次开放的工具：生活决策除 reflect 外全部，整理轮次只有整理工具，交谈轮次只有 interact。
     pub fn allowed_in(self, kind: RequestKind) -> bool {
         match kind {
-            RequestKind::Life => self != Self::Reflect,
-            RequestKind::Reflection => REFLECTION_TOOLS.contains(&self),
+            RequestKind::Life => self != Self::Reflect && self != Self::Dream,
+            RequestKind::Reflection => REFLECTION_TOOLS.contains(&self) || self == Self::Dream,
             RequestKind::Chat => self == Self::Interact,
         }
     }
@@ -217,7 +220,7 @@ impl ToolSpec {
     }
 }
 
-pub const TOOLS: [ToolSpec; 15] = [
+pub const TOOLS: [ToolSpec; 16] = [
     ToolSpec {
         name: ToolName::ContextRead,
         description: || {
@@ -247,6 +250,14 @@ pub const TOOLS: [ToolSpec; 15] = [
         description: || "整理轮次专用：总结本批新增经历并提交有来源的主题更新。".into(),
         parameters: schema::reflect,
         exec: reflect,
+    },
+    ToolSpec {
+        name: ToolName::Dream,
+        description: || {
+            "做梦专用：交回从这段日子的记忆里想明白的认识、可以放下的记忆和几句梦。".into()
+        },
+        parameters: schema::dream,
+        exec: dream,
     },
     ToolSpec {
         name: ToolName::ReadContent,
@@ -358,6 +369,11 @@ pub fn reflection_definitions(has_read: bool) -> Vec<Value> {
     list
 }
 
+/// 做梦那一批的工具：只有 dream。
+pub fn dream_definitions() -> Vec<Value> {
+    vec![spec(ToolName::Dream).definition()]
+}
+
 /// 生活决策的工具。开着的玩法让这个人交选择时多一件 mode_action，说明由玩法写；
 /// 没开玩法时和 definitions(Life) 一字不差。
 pub fn life_definitions(world: &World, actor: &str) -> Vec<Value> {
@@ -374,7 +390,10 @@ pub fn life_definitions(world: &World, actor: &str) -> Vec<Value> {
 pub fn definitions(kind: RequestKind) -> Vec<Value> {
     TOOLS
         .iter()
-        .filter(|t| t.name.allowed_in(kind) && t.name != ToolName::ModeAction)
+        // dream 只在做梦的那一批里发（dream_definitions），平常的整理轮次工具表里没有它
+        .filter(|t| {
+            t.name.allowed_in(kind) && t.name != ToolName::ModeAction && t.name != ToolName::Dream
+        })
         .map(|t| {
             let mut definition = t.definition();
             // 交谈轮次只有 interact，且只列 say、listen、leave，和交谈规则一致。
@@ -538,7 +557,48 @@ fn memory_read(ctx: &mut ToolContext, call: &ToolCall) -> Result<ToolOutcome, To
     let docs = ctx.documents.get(ctx.world, ctx.session);
     complete(notebook::read_in(&docs, query).map_err(ToolError::rejected)?)
 }
+fn dream(ctx: &mut ToolContext, call: &ToolCall) -> Result<ToolOutcome, ToolError> {
+    let material = ctx
+        .session
+        .notebook
+        .request
+        .as_ref()
+        .map(|batch| batch.dream.clone())
+        .filter(|ids| !ids.is_empty())
+        .ok_or_else(|| ToolError::rejected("现在没有在做梦"))?;
+    let now = ctx.world.minutes();
+    let actor = ctx.session.actor_id.clone();
+    let note = ctx
+        .session
+        .memory
+        .apply_dream(
+            &actor,
+            now,
+            kernel::calendar::day_index(now),
+            decode(&call.arguments)?,
+            &material,
+        )
+        .map_err(ToolError::rejected)?;
+    let book = &mut ctx.session.notebook;
+    book.request = None;
+    book.reading_dialogue.clear();
+    complete(json!({
+        "saved": true,
+        "insights": note.insights.len(),
+        "let_go": note.let_go
+    }))
+}
 fn reflect(ctx: &mut ToolContext, call: &ToolCall) -> Result<ToolOutcome, ToolError> {
+    // 做梦的那一批不是整理：整理的进度不能被它带着走
+    if ctx
+        .session
+        .notebook
+        .request
+        .as_ref()
+        .is_some_and(|batch| !batch.dream.is_empty())
+    {
+        return Err(ToolError::rejected("这一轮在做梦，只能交 dream"));
+    }
     notebook::apply_reflection(ctx.world, ctx.session, decode(&call.arguments)?)
         .map_err(ToolError::rejected)?;
     let book = &ctx.session.notebook;
