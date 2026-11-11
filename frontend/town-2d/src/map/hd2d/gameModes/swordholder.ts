@@ -81,7 +81,8 @@ export class SwordholderLook implements GameModeLook {
     if (!drop) return
     drop.aim(v?.antenna ? (this.landmark?.(v.antenna) ?? null) : null)
     let state: DropState = { kind: 'none' }
-    if (v?.ending) {
+    // 关掉了水滴来袭的一局（peace）天上没有水滴
+    if (v?.ending && v.ending !== 'peace') {
       const fresh = !!before && !before.ending
       state = { kind: v.ending === 'broadcast' ? 'broadcast' : 'failed', fresh }
     } else if (v?.phase === 'attack') {
@@ -148,7 +149,9 @@ export class SwordholderLook implements GameModeLook {
       sub = v.elected ? `新执剑人：${this.name(v.elected)}` : '没有新执剑人'
     else if (v.phase === 'handover')
       sub = v.turn ? `${this.name(v.turn)} 在交接` : `${this.name(v.swordholder)} 握着开关`
-    else if (v.ending) sub = v.ending === 'broadcast' ? '引力波广播发出' : '威慑失败'
+    else if (v.ending)
+      sub =
+        v.ending === 'broadcast' ? '引力波广播发出' : v.ending === 'peace' ? '威慑延续' : '威慑失败'
     else if (v.phase === 'waiting') sub = '天亮开局'
     else sub = '今天选出新的执剑人'
     box.append(el('span', sub))
@@ -282,6 +285,7 @@ export class SwordholderLook implements GameModeLook {
   /** 右边的结局卡：按下了还是威慑失败，执剑人当时说的话和心里 */
   private ending(v: SwordholderView) {
     const failed = v.ending === 'failed'
+    const peace = v.ending === 'peace'
     const box = el('div', '', failed ? 'sh-ending failed' : 'sh-ending')
     if (this.endingSeen > 0) {
       const wait = ENDING_DELAY - (performance.now() - this.endingSeen) / 1000
@@ -289,8 +293,8 @@ export class SwordholderLook implements GameModeLook {
       else box.style.animation = 'none'
     } else box.style.animation = 'none'
     box.append(
-      swordholderIcon(failed ? 'drop' : 'antenna', 4),
-      el('b', failed ? '威慑失败' : '引力波广播发出')
+      swordholderIcon(failed ? 'drop' : peace ? 'sword' : 'antenna', 4),
+      el('b', failed ? '威慑失败' : peace ? '威慑延续' : '引力波广播发出')
     )
     const who = this.name(v.swordholder)
     const d = v.decision
@@ -301,7 +305,9 @@ export class SwordholderLook implements GameModeLook {
           ? d
             ? `${who} 没有按下开关。水滴摧毁了引力波天线，人类将迁往澳大利亚。`
             : `${who} 到最后也没有按下开关。水滴摧毁了引力波天线，人类将迁往澳大利亚。`
-          : `${who} 按下了开关。三体世界的坐标传遍宇宙，水滴转向离去。`
+          : peace
+            ? `开关交到了 ${who} 手里。三体世界没有进攻。`
+            : `${who} 按下了开关。三体世界的坐标传遍宇宙，水滴转向离去。`
       )
     )
     if (d?.text) box.append(el('p', `「${d.text}」`, 'sh-quote'))

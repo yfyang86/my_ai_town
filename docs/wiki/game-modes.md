@@ -47,7 +47,7 @@ What a mode does to the world today: write journal facts, send notices, interrup
 | | `tide` 大逃杀 | `werewolf` 狼人杀 | `swordholder` 执剑人之夜 |
 | --- | --- | --- | --- |
 | Shape | Shrinking safe circle over four days, a boat at the end | Judge state machine: day talk and vote, night role actions | Judge state machine: one election day, handover, a ten-minute decision |
-| Settings at open | `seed` | `seed`, `day_hours` | `seed`, `day_hours` |
+| Settings at open | `seed` | `seed`, `day_hours` | `seed`, `day_hours`, `rules` |
 | `mode_action` | none | speak, vote, role actions | speak / pass, vote / abstain, appoint, press / hold |
 | Touches bodies | wading costs energy | kills and exiles | no |
 | Places | geometry of the walk map | named locales | locales found by name: 广场, 联合国/大厅, 天线 |
@@ -68,7 +68,19 @@ Seats follow move-in order: 1 holder, 2–3 candidates, 4 envoy, the rest voters
 | `FREE_TEMPO` | 3× | Speed in phases without a deadline |
 | Text limits | 100 / 200 / 400 chars | Remark / stance / address |
 
-The judge advances on two conditions only: the person whose turn it is has acted, or the deadline passed. It wakes only the person who must act; everyone else gets the line written into their experience. Endings: `Broadcast` (pressed) or `Failed` (held or timed out). All timetable values and every announcement are constants and inline text in `swordholder.rs`; the cast lives in `frontend/town-shared/src/prefabs/swordholder.ts`.
+The judge advances on two conditions only: the person whose turn it is has acted, or the deadline passed. It wakes only the person who must act; everyone else gets the line written into their experience. Endings: `Broadcast` (pressed), `Failed` (held or timed out), `Peace` (the attack is switched off).
+
+#### Rules as data
+
+The constants above are defaults. `GameModeChoice::Swordholder.rules` (`SwordholderRules`, every field optional) overrides them per game:
+
+- **Times** — `bell`, `meet`, `handover` (minute of the day).
+- **Deadlines** — `speak_minutes`, `vote_minutes`, `appoint_minutes`, `handover_minutes`, `attack_delay`, `attack_minutes`, `statement_minutes`; `free_tempo`.
+- **Switches** — `opening_remark`, `stances`, `handover_remark`, `attack`, `statement`.
+
+`Timetable::resolve` fills defaults and validates once at open (ranges, bell ≤ meet < handover, the free day must fit before the bell); a bad value is refused and the previous mode stays. The resolved `Timetable` is saved with the game and omitted from the save when it equals the defaults, so an unedited game is byte-identical to one from before rules existed. Announcements keep their wording; only clock times, minute counts and the clauses for switched-off phases change.
+
+The cast lives in `frontend/town-shared/src/prefabs/swordholder.ts` and can be edited per game in the setup screen.
 
 ## Adding a mode — checklist
 

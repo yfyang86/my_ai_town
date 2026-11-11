@@ -157,9 +157,54 @@ impl From<MapError> for ApiError {
     }
 }
 
+/// 选择小镇页不显示的剧本编号：小写字母、数字和连字符，最多 64 个。
+fn hidden_prefabs(value: &Value) -> Result<Vec<String>, ApiError> {
+    let list = value
+        .as_array()
+        .filter(|list| list.len() <= 64)
+        .ok_or_else(|| ApiError::bad("剧本名单无效"))?;
+    let mut ids = Vec::new();
+    for id in list {
+        let id = id
+            .as_str()
+            .filter(|id| {
+                (1..=40).contains(&id.len())
+                    && !id.starts_with('-')
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            })
+            .ok_or_else(|| ApiError::bad("剧本编号无效"))?;
+        ids.push(id.to_owned());
+    }
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
 impl Storage {
     pub fn new(root: PathBuf, app: PathBuf) -> Self {
         Self { root, app }
+    }
+
+    /// 选择小镇页的摆法（和电脑上的管理服务共用一个文件）：现在只有不显示的剧本。
+    pub fn launcher(&self) -> Result<Value, ApiError> {
+        let saved = read_json(&self.root.join("config/launcher.json")).unwrap_or_default();
+        let hidden = match saved.get("hidden_prefabs") {
+            Some(list) => hidden_prefabs(list)?,
+            None => Vec::new(),
+        };
+        Ok(json!({ "hidden": hidden }))
+    }
+
+    pub fn set_launcher(&self, request: &Value) -> Result<Value, ApiError> {
+        let hidden = hidden_prefabs(&request["hidden"])?;
+        fs::create_dir_all(self.root.join("config"))?;
+        write_json(
+            &self.root.join("config/launcher.json"),
+            &json!({ "hidden_prefabs": hidden }),
+        )?;
+        Ok(json!({ "hidden": hidden }))
     }
 
     pub fn town(&self, id: &str) -> Result<PathBuf, ApiError> {

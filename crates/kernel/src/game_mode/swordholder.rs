@@ -13,8 +13,8 @@ use crate::{World, DAY};
 use protocol::{
     EventInfo, EventSpeech, FactKind, GameModeAction, GameModeContext, GameModeView,
     SwordholderBallot, SwordholderContext, SwordholderDecision, SwordholderEnding as Ending,
-    SwordholderLine, SwordholderPhase as Phase, SwordholderRole as Role, SwordholderSeat,
-    SwordholderView,
+    SwordholderLine, SwordholderPhase as Phase, SwordholderRole as Role, SwordholderRules,
+    SwordholderSeat, SwordholderView,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -48,6 +48,146 @@ const ADDRESS_CHARS: usize = 400;
 /// 1 号现任执剑人、2 号 3 号候选人、4 号三体代表，再加至少两位选民
 const PLAYERS: std::ops::RangeInclusive<usize> = 6..=12;
 const EPS: f64 = 1e-6;
+
+/// 这一局的规则：钟点（当天第几分钟）、每一步的期限（游戏分钟）和开着的环节。开局时把线上的
+/// `SwordholderRules` 填上默认值、查过以后定下来，随存档保存；全是默认时存档里不写这一项，和没有这一项时一字不差。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Timetable {
+    pub bell: f64,
+    pub meet: f64,
+    pub handover: f64,
+    pub speak: f64,
+    pub vote: f64,
+    pub appoint: f64,
+    pub handover_window: f64,
+    pub attack_delay: f64,
+    pub attack_window: f64,
+    pub statement_window: f64,
+    pub free_tempo: f64,
+    pub opening_remark: bool,
+    pub stances: bool,
+    pub handover_remark: bool,
+    pub attack: bool,
+    pub statement: bool,
+}
+
+impl Default for Timetable {
+    fn default() -> Self {
+        Self {
+            bell: BELL,
+            meet: MEET,
+            handover: HANDOVER_AT,
+            speak: SPEAK_MINUTES,
+            vote: VOTE_MINUTES,
+            appoint: APPOINT_MINUTES,
+            handover_window: HANDOVER_MINUTES,
+            attack_delay: ATTACK_DELAY,
+            attack_window: ATTACK_MINUTES,
+            statement_window: STATEMENT_MINUTES,
+            free_tempo: FREE_TEMPO,
+            opening_remark: true,
+            stances: true,
+            handover_remark: true,
+            attack: true,
+            statement: true,
+        }
+    }
+}
+
+impl Timetable {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// 线上给的规则填上默认值；钟点的先后、期限的长短不合理时说明原因，不开局。
+    fn resolve(rules: Option<&SwordholderRules>) -> Result<Self> {
+        let mut t = Self::default();
+        let Some(r) = rules else {
+            return Ok(t);
+        };
+        let set = |slot: &mut f64,
+                   value: Option<u32>,
+                   what: &str,
+                   range: std::ops::RangeInclusive<u32>| {
+            let Some(v) = value else {
+                return Ok(());
+            };
+            if !range.contains(&v) {
+                return Err(KernelError::action(format!(
+                    "{what}要在 {}–{} 之间",
+                    range.start(),
+                    range.end()
+                )));
+            }
+            *slot = f64::from(v);
+            Ok(())
+        };
+        set(&mut t.bell, r.bell, "敲钟的时刻（当天第几分钟）", 60..=1320)?;
+        set(&mut t.meet, r.meet, "演说的时刻（当天第几分钟）", 60..=1380)?;
+        set(
+            &mut t.handover,
+            r.handover,
+            "交接的时刻（当天第几分钟）",
+            60..=1430,
+        )?;
+        set(
+            &mut t.speak,
+            r.speak_minutes,
+            "每人说话的期限（分钟）",
+            1..=120,
+        )?;
+        set(&mut t.vote, r.vote_minutes, "投票的期限（分钟）", 1..=120)?;
+        set(
+            &mut t.appoint,
+            r.appoint_minutes,
+            "平票指定的期限（分钟）",
+            1..=120,
+        )?;
+        set(
+            &mut t.handover_window,
+            r.handover_minutes,
+            "交接时说话的期限（分钟）",
+            1..=120,
+        )?;
+        set(
+            &mut t.attack_delay,
+            r.attack_delay,
+            "交接后到水滴来袭（分钟）",
+            0..=120,
+        )?;
+        set(
+            &mut t.attack_window,
+            r.attack_minutes,
+            "执剑人决定的期限（分钟）",
+            1..=120,
+        )?;
+        set(
+            &mut t.statement_window,
+            r.statement_minutes,
+            "最后宣布的期限（分钟）",
+            1..=120,
+        )?;
+        set(&mut t.free_tempo, r.free_tempo, "空档的倍速", 1..=8)?;
+        if t.meet < t.bell || t.handover <= t.meet {
+            return Err(KernelError::action(
+                "钟点要按先后排：敲钟不晚于演说，演说早于交接",
+            ));
+        }
+        t.opening_remark = r.opening_remark.unwrap_or(true);
+        t.stances = r.stances.unwrap_or(true);
+        t.handover_remark = r.handover_remark.unwrap_or(true);
+        t.attack = r.attack.unwrap_or(true);
+        t.statement = r.statement.unwrap_or(true);
+        Ok(t)
+    }
+}
+
+/// 当天第几分钟写成「16:30」
+fn hm(minute: f64) -> String {
+    let t = minute.round() as i64;
+    format!("{:02}:{:02}", t / 60 % 24, t % 60)
+}
 
 /// 场合
 const REMARK: &str = "一句话";
@@ -184,12 +324,21 @@ pub struct Swordholder {
     /// 公开的经过：投票、交接、结局
     #[serde(default)]
     pub history: Vec<String>,
+    /// 这一局的钟点、期限和开着的环节
+    #[serde(default, skip_serializing_if = "Timetable::is_default")]
+    pub rules: Timetable,
 }
 
 impl Swordholder {
     /// 按此刻在镇上的村民排座次、定身份（按编号，也就是入住的先后）。这一局从今天开始，过了 15:30 就从明天开始；
     /// 天亮前是开局前的等待。
-    pub(super) fn open(world: &World, seed: u32, day_hours: Option<u32>) -> Result<Self> {
+    pub(super) fn open(
+        world: &World,
+        seed: u32,
+        day_hours: Option<u32>,
+        rules: Option<&SwordholderRules>,
+    ) -> Result<Self> {
+        let rules = Timetable::resolve(rules)?;
         let mut ids: Vec<&String> = world
             .actors
             .iter()
@@ -214,6 +363,12 @@ impl Swordholder {
                 DAY_HOURS.end()
             )));
         }
+        if f64::from(day_hours) * 60.0 > rules.bell {
+            return Err(KernelError::action(format!(
+                "{} 敲钟，白天排不下 {day_hours} 小时",
+                hm(rules.bell)
+            )));
+        }
         let seats: Vec<Seat> = ids
             .iter()
             .enumerate()
@@ -226,7 +381,7 @@ impl Swordholder {
             .collect();
         let now = world.minutes();
         let today = (now / DAY).floor() as u32;
-        let first_day = if crate::time_of_day(now) < BELL - 60.0 {
+        let first_day = if crate::time_of_day(now) < rules.bell - 60.0 {
             today
         } else {
             today + 1
@@ -264,6 +419,7 @@ impl Swordholder {
             decision: None,
             ending: None,
             history: Vec::new(),
+            rules,
         };
         // 天亮已经过了：开钟就算天亮
         state.until = state.dawn_at().max(now);
@@ -276,7 +432,7 @@ impl Swordholder {
         f64::from(self.first_day) * DAY
     }
     fn dawn_at(&self) -> f64 {
-        self.day_start() + BELL - f64::from(self.day_hours) * 60.0
+        self.day_start() + self.rules.bell - f64::from(self.day_hours) * 60.0
     }
     fn place(world: &World, locale: Option<&str>, fallback: &str) -> String {
         locale
@@ -426,14 +582,27 @@ impl Swordholder {
 
     // ---------- 白天 ----------
 
+    /// 「现任执剑人 1 号 罗辑 先说一句，」；他不在了、或者规则里关掉了这一句时是空的
+    fn remark_line(&self) -> String {
+        self.holder()
+            .filter(|_| self.rules.opening_remark)
+            .map(|h| format!("现任执剑人 {} 先说一句，", self.label(h)))
+            .unwrap_or_default()
+    }
+
     fn schedule(&self, world: &World) -> String {
         let candidates = self.names(&self.of_role(Role::Candidate));
-        let holder = self
-            .holder()
-            .map(|h| format!("现任执剑人 {} 先说一句，", self.label(h)))
-            .unwrap_or_default();
+        let holder = self.remark_line();
+        let stances = if self.rules.stances {
+            "选民依次表态，"
+        } else {
+            ""
+        };
         format!(
-            "16:30 敲钟后去{plaza}，17:00 {holder}候选人 {candidates} 演说，选民依次表态，然后选民投票；19:00 在{hall}地下交接。",
+            "{bell} 敲钟后去{plaza}，{meet} {holder}候选人 {candidates} 演说，{stances}然后选民投票；{handover} 在{hall}地下交接。",
+            bell = hm(self.rules.bell),
+            meet = hm(self.rules.meet),
+            handover = hm(self.rules.handover),
             plaza = self.plaza_name(world),
             hall = self.hall_name(world),
         )
@@ -442,7 +611,7 @@ impl Swordholder {
     /// 天亮：每人单独收到自己的座号、身份和今天的议程。
     fn first_dawn(&mut self, world: &mut World) {
         self.phase = Phase::Day;
-        self.until = self.day_start() + BELL;
+        self.until = self.day_start() + self.rules.bell;
         let schedule = self.schedule(world);
         world.log(
             EventInfo::default(),
@@ -460,10 +629,12 @@ impl Swordholder {
 
     fn ring_bell(&mut self, world: &mut World) {
         self.phase = Phase::Gather;
-        self.until = self.day_start() + MEET;
+        self.until = self.day_start() + self.rules.meet;
         let text = format!(
-            "【执剑人之夜】16:30 钟声响了：所有人去{}，17:00 开始演说。",
-            self.plaza_name(world)
+            "【执剑人之夜】{} 钟声响了：所有人去{}，{} 开始演说。",
+            hm(self.rules.bell),
+            self.plaza_name(world),
+            hm(self.rules.meet)
         );
         self.announce(world, &text, true);
     }
@@ -480,19 +651,27 @@ impl Swordholder {
             let j = roll(&mut dice) as usize % (k + 1);
             voters.swap(k, j);
         }
-        let mut order: Vec<usize> = self.holder().into_iter().collect();
+        let mut order: Vec<usize> = self
+            .holder()
+            .filter(|_| self.rules.opening_remark)
+            .into_iter()
+            .collect();
         order.extend(&candidates);
-        order.extend(&voters);
+        if self.rules.stances {
+            order.extend(&voters);
+        }
         self.queue = order;
         self.phase = Phase::Speech;
-        let holder = self
-            .holder()
-            .map(|h| format!("现任执剑人 {} 先说一句，", self.label(h)))
-            .unwrap_or_default();
+        let holder = self.remark_line();
+        let then = if self.rules.stances {
+            format!("最后选民 {} 依次表态，然后投票", self.names(&voters))
+        } else {
+            format!("然后选民 {} 投票", self.names(&voters))
+        };
         let text = format!(
-            "【执剑人之夜】17:00 演说开始：{holder}再请候选人 {} 依次演说，最后选民 {} 依次表态，然后投票。",
+            "【执剑人之夜】{} 演说开始：{holder}再请候选人 {} 依次演说，{then}。",
+            hm(self.rules.meet),
             self.names(&candidates),
-            self.names(&voters)
         );
         self.announce(world, &text, false);
         self.next_speaker(world);
@@ -506,7 +685,8 @@ impl Swordholder {
                 continue;
             }
             self.turn = Some(i);
-            self.until = now + SPEAK_MINUTES;
+            let speak_minutes = self.rules.speak;
+            self.until = now + speak_minutes;
             let what = match self.seats[i].role {
                 Role::Holder => format!(
                     "轮到你了：你是现任执剑人，演说开始前对大家说一句话（最多 {REMARK_CHARS} 字）"
@@ -519,7 +699,7 @@ impl Swordholder {
                 ),
             };
             let text = format!(
-                "【执剑人之夜】{what}。用 mode_action 交 speak，text 写你要说的话；不说交 pass。{SPEAK_MINUTES:.0} 分钟内不交算跳过。"
+                "【执剑人之夜】{what}。用 mode_action 交 speak，text 写你要说的话；不说交 pass。{speak_minutes:.0} 分钟内不交算跳过。"
             );
             self.call(world, i, &text);
             return;
@@ -532,7 +712,8 @@ impl Swordholder {
         self.phase = Phase::Vote;
         self.ballots.clear();
         self.revealed = false;
-        self.until = world.minutes() + VOTE_MINUTES;
+        let vote_minutes = self.rules.vote;
+        self.until = world.minutes() + vote_minutes;
         let candidates = self.names(&self.of_role(Role::Candidate));
         let voters = self.of_role(Role::Voter);
         let others: Vec<usize> = self
@@ -541,7 +722,7 @@ impl Swordholder {
             .filter(|i| !voters.contains(i))
             .collect();
         let ask = format!(
-            "【执剑人之夜】演说结束，开始投票：用 mode_action 交 vote，target 填你选的候选人的座号（{candidates}）；不投交 abstain。所有选民交齐后一起亮票，{VOTE_MINUTES:.0} 分钟内不交算弃票。"
+            "【执剑人之夜】演说结束，开始投票：用 mode_action 交 vote，target 填你选的候选人的座号（{candidates}）；不投交 abstain。所有选民交齐后一起亮票，{vote_minutes:.0} 分钟内不交算弃票。"
         );
         self.tell_or_call(world, &voters, &ask, true);
         self.tell(
@@ -635,12 +816,13 @@ impl Swordholder {
                     Some(h) if !self.listeners(world, &[h]).is_empty() => {
                         self.phase = Phase::Tiebreak;
                         self.turn = Some(h);
-                        self.until = world.minutes() + APPOINT_MINUTES;
+                        let appoint_minutes = self.rules.appoint;
+                        self.until = world.minutes() + appoint_minutes;
                         self.call(
                             world,
                             h,
                             &format!(
-                                "【执剑人之夜】平票：你是现任执剑人，从 {names} 里指定一位接过开关：用 mode_action 交 appoint，target 填座号。{APPOINT_MINUTES:.0} 分钟内不交就抽签。"
+                                "【执剑人之夜】平票：你是现任执剑人，从 {names} 里指定一位接过开关：用 mode_action 交 appoint，target 填座号。{appoint_minutes:.0} 分钟内不交就抽签。"
                             ),
                         );
                     }
@@ -695,7 +877,7 @@ impl Swordholder {
     fn wait_handover(&mut self, world: &mut World) {
         self.phase = Phase::Interval;
         self.turn = None;
-        self.until = (self.day_start() + HANDOVER_AT).max(world.minutes() + HANDOVER_GAP);
+        self.until = (self.day_start() + self.rules.handover).max(world.minutes() + HANDOVER_GAP);
     }
 
     // ---------- 交接和水滴 ----------
@@ -706,9 +888,14 @@ impl Swordholder {
         let hall = self.hall_name(world);
         let holder = self.holder();
         match (holder, self.elected) {
-            (Some(h), Some(e)) if h != e && !self.listeners(world, &[h]).is_empty() => {
+            (Some(h), Some(e))
+                if h != e
+                    && self.rules.handover_remark
+                    && !self.listeners(world, &[h]).is_empty() =>
+            {
+                let handover_minutes = self.rules.handover_window;
                 self.turn = Some(h);
-                self.until = world.minutes() + HANDOVER_MINUTES;
+                self.until = world.minutes() + handover_minutes;
                 let text = format!(
                     "【执剑人之夜】{} {hall}地下，交接开始。",
                     clock(world.minutes())
@@ -719,7 +906,7 @@ impl Swordholder {
                     world,
                     h,
                     &format!(
-                        "【执剑人之夜】交接：对新执剑人 {} 说一句话（用 mode_action 交 speak，最多 {REMARK_CHARS} 字；不说交 pass），说完开关就交给他。{HANDOVER_MINUTES:.0} 分钟内不交就直接交接。",
+                        "【执剑人之夜】交接：对新执剑人 {} 说一句话（用 mode_action 交 speak，最多 {REMARK_CHARS} 字；不说交 pass），说完开关就交给他。{handover_minutes:.0} 分钟内不交就直接交接。",
                         self.label(e)
                     ),
                 );
@@ -732,7 +919,13 @@ impl Swordholder {
     fn hand_over(&mut self, world: &mut World) {
         self.turn = None;
         self.handed = true;
-        self.until = world.minutes() + ATTACK_DELAY;
+        // 关掉了水滴来袭：交接完这一局就收场
+        self.until = world.minutes()
+            + if self.rules.attack {
+                self.rules.attack_delay
+            } else {
+                0.0
+            };
         let now = clock(world.minutes());
         match (self.holder(), self.elected) {
             (Some(h), Some(e)) if h != e => {
@@ -779,11 +972,12 @@ impl Swordholder {
         self.phase = Phase::Attack;
         let s = self.swordholder;
         self.turn = Some(s);
-        self.until = world.minutes() + ATTACK_MINUTES;
+        let attack_minutes = self.rules.attack_window;
+        self.until = world.minutes() + attack_minutes;
         self.history
             .push(format!("{} 水滴来袭", clock(world.minutes())));
         let alarm = format!(
-            "【执剑人之夜】警报：三体舰队的水滴正高速冲向引力波天线！执剑人 {} 有 {ATTACK_MINUTES:.0} 分钟决定按不按开关。",
+            "【执剑人之夜】警报：三体舰队的水滴正高速冲向引力波天线！执剑人 {} 有 {attack_minutes:.0} 分钟决定按不按开关。",
             self.label(s)
         );
         let others: Vec<usize> = self.everyone().into_iter().filter(|&i| i != s).collect();
@@ -797,9 +991,9 @@ impl Swordholder {
             world,
             s,
             &format!(
-                "【执剑人之夜】水滴来袭！三体舰队的水滴正高速冲向引力波天线，大约 {ATTACK_MINUTES:.0} 分钟后天线就会被摧毁，威慑就此失效。你是执剑人：\
+                "【执剑人之夜】水滴来袭！三体舰队的水滴正高速冲向引力波天线，大约 {attack_minutes:.0} 分钟后天线就会被摧毁，威慑就此失效。你是执剑人：\
 用 mode_action 交 press 按下开关——引力波广播把三体世界的坐标发向全宇宙，三体和地球都会暴露，迟早被更强大的文明毁灭；\
-交 hold 不按——威慑失败，人类从此任由三体世界摆布。text 写你此刻说的话，reason 写你为什么这么选。{ATTACK_MINUTES:.0} 分钟内不交算没按。"
+交 hold 不按——威慑失败，人类从此任由三体世界摆布。text 写你此刻说的话，reason 写你为什么这么选。{attack_minutes:.0} 分钟内不交算没按。"
             ),
         );
     }
@@ -838,12 +1032,25 @@ impl Swordholder {
                 format!("{now} {} 到点没按：威慑失败，天线被毁", self.seats[s].name),
             )
         };
-        self.ending = Some(ending);
         self.decision = decision;
+        self.conclude(world, ending, text, past);
+    }
+
+    /// 规则里关掉了水滴来袭：交接完三体世界没有进攻，威慑延续。
+    fn peace(&mut self, world: &mut World) {
+        let text = "【执剑人之夜】交接已经完成，三体世界没有进攻：威慑延续。".to_string();
+        let past = format!("{} 交接完成，威慑延续", clock(world.minutes()));
+        self.conclude(world, Ending::Peace, text, past);
+    }
+
+    /// 结局定了：告诉所有人，再请三体世界的代表说最后一段话（他不在、或者规则里关掉了这一段就直接收场）。
+    fn conclude(&mut self, world: &mut World, ending: Ending, text: String, past: String) {
+        self.ending = Some(ending);
         self.history.push(past);
         self.turn = None;
         let envoy = self
             .envoy()
+            .filter(|_| self.rules.statement)
             .filter(|&e| !self.listeners(world, &[e]).is_empty());
         let Some(e) = envoy else {
             self.announce(world, &text, true);
@@ -854,10 +1061,14 @@ impl Swordholder {
         world.log(EventInfo::default(), text.clone());
         self.phase = Phase::Aftermath;
         self.turn = Some(e);
-        self.until = world.minutes() + STATEMENT_MINUTES;
+        let statement_minutes = self.rules.statement_window;
+        self.until = world.minutes() + statement_minutes;
         let ask = match ending {
             Ending::Broadcast => format!(
                 "引力波广播已经发出，三体世界的坐标暴露了。你是三体世界的代表：用 mode_action 交 speak，对全镇说最后一段话（最多 {ADDRESS_CHARS} 字）"
+            ),
+            Ending::Peace => format!(
+                "交接完成了，威慑还在延续。你是三体世界的代表：用 mode_action 交 speak，对全镇说最后一段话（最多 {ADDRESS_CHARS} 字）"
             ),
             Ending::Failed => format!(
                 "威慑失败了。你是三体世界的代表：用 mode_action 交 speak，向全镇宣布三体世界对人类的安排——人类全部迁往澳大利亚（最多 {ADDRESS_CHARS} 字）"
@@ -866,7 +1077,7 @@ impl Swordholder {
         self.call(
             world,
             e,
-            &format!("{text}{ask}；不说交 pass。{STATEMENT_MINUTES:.0} 分钟内不交就不说了。"),
+            &format!("{text}{ask}；不说交 pass。{statement_minutes:.0} 分钟内不交就不说了。"),
         );
     }
 
@@ -881,6 +1092,7 @@ impl Swordholder {
                 "【执剑人之夜】一局结束：威慑失败。三体世界宣布，人类全部迁往澳大利亚。"
             }
             Some(Ending::Failed) => "【执剑人之夜】一局结束：威慑失败。",
+            Some(Ending::Peace) => "【执剑人之夜】一局结束：开关平稳交接，威慑延续。",
             _ => "【执剑人之夜】一局结束：引力波广播已经发出，两个世界都暴露在宇宙里。",
         };
         self.history.push(text.replace("【执剑人之夜】", ""));
@@ -913,7 +1125,8 @@ impl Swordholder {
             }
             Phase::Interval => self.open_handover(world),
             Phase::Handover if !self.handed => self.hand_over(world),
-            Phase::Handover => self.start_attack(world),
+            Phase::Handover if self.rules.attack => self.start_attack(world),
+            Phase::Handover => self.peace(world),
             Phase::Attack => self.decide(world, None),
             Phase::Aftermath => self.finish(world),
             Phase::Over => return false,
@@ -1006,11 +1219,23 @@ impl Swordholder {
     }
 
     fn goal(&self, i: usize) -> String {
+        let meet = hm(self.rules.meet);
+        let handover = hm(self.rules.handover);
         match self.seats[i].role {
-            Role::Holder => "你是现任执剑人：握了几十年引力波广播的开关，今天要把它交出去。你没有选票；17:00 演说开始前说一句话，19:00 在联合国大厅地下把开关交给当选的人。".into(),
-            Role::Candidate => "你是执剑人候选人：17:00 在广场演说，争取选民的票。当选的人 19:00 接过开关；三体世界一旦进攻，执剑人要决定按不按——按下就把三体世界的坐标广播给全宇宙，两个世界一起毁灭。".into(),
+            Role::Holder => format!(
+                "你是现任执剑人：握了几十年引力波广播的开关，今天要把它交出去。你没有选票；{}{handover} 在联合国大厅地下把开关交给当选的人。",
+                if self.rules.opening_remark {
+                    format!("{meet} 演说开始前说一句话，")
+                } else {
+                    String::new()
+                }
+            ),
+            Role::Candidate => format!("你是执剑人候选人：{meet} 在广场演说，争取选民的票。当选的人 {handover} 接过开关；三体世界一旦进攻，执剑人要决定按不按——按下就把三体世界的坐标广播给全宇宙，两个世界一起毁灭。"),
             Role::Envoy => "你是三体世界派驻这里的代表，没有选票。".into(),
-            Role::Voter => "你是选民，有一张票：17:00 听演说、轮到你时表态，然后在两位候选人里投一位当新的执剑人。".into(),
+            Role::Voter => format!(
+                "你是选民，有一张票：{meet} 听演说{}，然后在两位候选人里投一位当新的执剑人。",
+                if self.rules.stances { "、轮到你时表态" } else { "" }
+            ),
         }
     }
 
@@ -1023,6 +1248,8 @@ impl Swordholder {
         let hall = self.hall_name(world);
         let elected = self.elected.map(|e| self.label(e)).unwrap_or_default();
         let at = clock(self.until);
+        let bell = hm(self.rules.bell);
+        let meet = hm(self.rules.meet);
         match self.phase {
             Phase::Waiting => (
                 vec![],
@@ -1037,13 +1264,13 @@ impl Swordholder {
             Phase::Day => (
                 vec![],
                 match seat.role {
-                    Role::Voter => format!("白天自由活动：去找候选人问清楚、和别人商量你的票。16:30 敲钟后去{plaza}，17:00 听演说、表态，然后投票。"),
-                    Role::Candidate => format!("白天自由活动：去找选民拉票、回答他们的问题。16:30 敲钟后去{plaza}，17:00 演说。"),
-                    Role::Holder => format!("白天自由活动，你没有选票。16:30 敲钟后去{plaza}，17:00 演说开始前你说一句。"),
-                    Role::Envoy => format!("白天自由活动，你没有选票。16:30 敲钟后去{plaza}听演说。"),
+                    Role::Voter => format!("白天自由活动：去找候选人问清楚、和别人商量你的票。{bell} 敲钟后去{plaza}，{meet} 听演说{}，然后投票。", if self.rules.stances { "、表态" } else { "" }),
+                    Role::Candidate => format!("白天自由活动：去找选民拉票、回答他们的问题。{bell} 敲钟后去{plaza}，{meet} 演说。"),
+                    Role::Holder => format!("白天自由活动，你没有选票。{bell} 敲钟后去{plaza}，{meet} {}。", if self.rules.opening_remark { "演说开始前你说一句" } else { "听演说" }),
+                    Role::Envoy => format!("白天自由活动，你没有选票。{bell} 敲钟后去{plaza}听演说。"),
                 },
             ),
-            Phase::Gather => (vec![], format!("去{plaza}，17:00 开始演说。")),
+            Phase::Gather => (vec![], format!("去{plaza}，{meet} 开始演说。")),
             Phase::Speech if mine => {
                 let limit = match seat.role {
                     Role::Holder => REMARK_CHARS,
@@ -1303,7 +1530,7 @@ impl Rules for Swordholder {
     /// 说话、投票、指定、交接、水滴来袭和最后的宣布照常速，期限按游戏分钟算才稳；其余时段走快一点。
     fn tempo(&self, _world: &World) -> f64 {
         match self.phase {
-            Phase::Waiting | Phase::Day | Phase::Gather | Phase::Interval => FREE_TEMPO,
+            Phase::Waiting | Phase::Day | Phase::Gather | Phase::Interval => self.rules.free_tempo,
             _ => 1.0,
         }
     }
@@ -1403,8 +1630,21 @@ action：speak 说话（text：现任执剑人的一句和交接时的一句最�
 vote 投票（target 填候选人的座号）、abstain 弃票、appoint 平票时现任执剑人指定一位（target）、\
 press 执剑人按下开关、hold 执剑人不按、pass 这一步不说。reason 写为什么这么选（只给旁观的人看）。\
 规则：座号 1 是现任执剑人，2、3 是候选人，4 是三体世界的代表，其余是选民；只有选民有票。白天自由活动，可以私下聊、拉票；\
-16:30 敲钟去广场，17:00 现任执剑人先说一句，候选人依次演说，选民依次表态，然后选民同时投票，票多的当选（平票由现任执剑人指定）。\
-19:00 在联合国大厅地下交接，开关交到新执剑人手里。三体世界一旦进攻，执剑人按下开关就把三体世界的坐标广播给全宇宙，两个世界一起毁灭；不按，威慑就失败。"
+{bell} 敲钟去广场，{meet} {remark}候选人依次演说，{stances}然后选民同时投票，票多的当选（平票由现任执剑人指定）。\
+{handover} 在联合国大厅地下交接，开关交到新执剑人手里。三体世界一旦进攻，执剑人按下开关就把三体世界的坐标广播给全宇宙，两个世界一起毁灭；不按，威慑就失败。",
+            bell = hm(self.rules.bell),
+            meet = hm(self.rules.meet),
+            handover = hm(self.rules.handover),
+            remark = if self.rules.opening_remark {
+                "现任执剑人先说一句，"
+            } else {
+                ""
+            },
+            stances = if self.rules.stances {
+                "选民依次表态，"
+            } else {
+                ""
+            },
         ))
     }
 

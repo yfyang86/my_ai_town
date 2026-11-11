@@ -66,7 +66,9 @@ Useful switches: `TOWN_MOCK_LLM=1` runs residents on a scripted fake model; `AI_
 - **`Session::Sleep` is the agent's wait timer**, not the resident sleeping. A resident is asleep when `World::awake(id)` is false.
 - **`protocol.ts` is hand-written.** It mirrors `crates/protocol`; the wire test compiles Rust-generated samples against it. A new message needs: the Rust type, a sample in `crates/protocol/tests/wire/samples.rs`, the entry in the `variants!` list, and the TS type.
 - **The wire bans geometry.** Samples may not contain coordinates or pixel sizes outside a short exempt list; a game-mode view carries locale ids, not positions.
-- **Prefab options are functions** (`PrefabOption.apply`), so a prefab cannot be stored as JSON as-is.
 - **Changing prompt or tool wording for the built-in model** may require bumping `FORMAT` in `crates/agent/src/builtin.rs`; the fine-tuned model was trained on the exact template.
 - **Mode tool descriptions are identical for every seat** on purpose — it keeps the provider's prompt cache warm. Per-seat information goes in the context column.
+- **GitHub Actions do not run on this fork.** PRs show no checks; the local gate above is the gate. Run it before every merge.
+- **`pnpm test` as root.** `scripts/tests/readonly.test.mjs` asserts a `chmod 555` tree refuses writes; root ignores file modes, so it fails in root containers and nowhere else.
+- **The launcher strip clips overlays.** The town list scrolls horizontally (`overflow-x: auto`), which also clips vertically — popovers anchored in it are cut off. Put controls inline.
 - **Only one town runs at a time** (`MAX_RUNNING = 1`); opening another closes the least recently used.

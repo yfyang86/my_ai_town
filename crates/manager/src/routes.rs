@@ -112,6 +112,9 @@ fn api(app: &App, req: &Request, rest: &str, get: bool) -> Result<Response, ApiE
                 .collect();
             return ok(json!({ "towns": towns }));
         }
+        // 选择小镇页不显示哪些剧本：只是不列出来，已经开过的那一局的存档不动
+        (true, "/prefabs") => return ok(app.storage.launcher()?),
+        (false, "/prefabs") => return ok(app.storage.set_launcher(&body(req)?)?),
         // 建镇：生成在网页里做，这里理解描述、校验成品、暂存草稿、保存（见 creation.rs）
         (true, "/options") => return ok(crate::creation::options(&app.config)),
         (false, "/parse") => return ok(crate::creation::parse(&app.config, &body(req)?)?),

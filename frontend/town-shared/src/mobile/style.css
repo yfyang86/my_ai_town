@@ -1289,6 +1289,49 @@ input.prefab-seed {
   padding: 2px 8px;
   font-variant-numeric: tabular-nums;
 }
+.prefab-fold {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.prefab-fold > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  list-style: revert;
+}
+.prefab-fold > summary small {
+  color: var(--dim);
+}
+.prefab-fold > button {
+  margin-top: 8px;
+}
+.prefab-rule-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+}
+input.prefab-rule {
+  width: 6.5em;
+}
+.prefab-persona {
+  border-top: 0;
+  padding: 4px 0 4px 12px;
+}
+.prefab-field {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0;
+}
+.prefab-field span {
+  color: var(--dim);
+  font-size: 12px;
+}
+.prefab-field textarea {
+  min-height: 4.5em;
+  resize: vertical;
+}
 .prefab-status {
   margin: 0;
   font-size: 13px;

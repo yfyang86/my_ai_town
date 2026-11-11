@@ -46,6 +46,8 @@ export interface Prefab {
   needsHint: { on: string; off: string }
   /** 开局设置里这个玩法自己的几行（圈的位置、身份、白天长短……） */
   options: PrefabOption[]
+  /** 开局设置里收在「规则」里的细项（钟点、期限、可以关掉的环节）；没改的不发，和没有这一栏时一样 */
+  rules?: PrefabRule[]
 }
 
 /** 预制小镇的选手人设：村民库模板的字段，长相不写（借 roster 里的模板）；look 是这一局捏好的长相，
@@ -69,8 +71,48 @@ export interface PrefabOption {
   initial: string
   /** 选中这个取值时下面多一个种子输入框 */
   seed?: string
-  /** 把这一行选好的值并进玩法设置；没要种子时 seed 为 null */
-  apply(choice: GameModeChoice, value: string, seed: number | null): GameModeChoice
+  /** 选好的值写进玩法设置的哪一项（用点分开的路径，如 day_hours、rules.bell）；带种子的一行写的是填的种子 */
+  field: string
+  /** 选好的值按数字写进去；不写按文字 */
+  number?: boolean
+}
+
+/** 「规则」里的一项：钟点（当天第几分钟）、几分钟、或一个开关。initial 要和内核的默认一致，没改的不发 */
+export interface PrefabRule {
+  label: string
+  hint: string
+  /** 写进玩法设置的哪一项，如 rules.bell */
+  field: string
+  kind: 'time' | 'minutes' | 'switch'
+  initial: number | boolean
+  min?: number
+  max?: number
+}
+
+/** 把一个值写进玩法设置里的一项（路径用点分开），不动原来的对象 */
+export function withField(
+  choice: GameModeChoice,
+  field: string,
+  value: string | number | boolean
+): GameModeChoice {
+  const [head, ...rest] = field.split('.')
+  const source = choice as unknown as Record<string, unknown>
+  const inner =
+    rest.length > 0
+      ? withField((source[head] ?? {}) as GameModeChoice, rest.join('.'), value)
+      : value
+  return { ...source, [head]: inner } as unknown as GameModeChoice
+}
+
+/** 把一行选好的值并进玩法设置；带种子的一行只在填了种子时写 */
+export function applyOption(
+  choice: GameModeChoice,
+  option: PrefabOption,
+  value: string,
+  seed: number | null
+): GameModeChoice {
+  if (option.seed) return seed ? withField(choice, option.field, seed) : choice
+  return withField(choice, option.field, option.number ? Number(value) : value)
 }
 
 /** 每局随机，或填一个种子让每局都一样 */
@@ -83,7 +125,7 @@ export function seedOption(label: string, randomHint: string): PrefabOption {
     ],
     initial: 'random',
     seed: 'fixed',
-    apply: (choice, _value, seed) => (seed ? { ...choice, seed } : choice),
+    field: 'seed',
   }
 }
 

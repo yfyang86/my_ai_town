@@ -52,6 +52,56 @@ pub enum SwordholderEnding {
     Broadcast,
     /// 没按或到点：威慑失败，水滴摧毁引力波天线
     Failed,
+    /// 规则里关掉了水滴来袭：开关交到新执剑人手里，威慑延续
+    Peace,
+}
+
+/// 开局时可以改的规则：钟点（当天第几分钟）、每一步的期限（游戏分钟）和几个可以关掉的环节。
+/// 每一项不写就照原来的：16:30 敲钟、17:00 演说、19:00 交接，说话和投票各 15 分钟，
+/// 指定和交接各 10 分钟，交接后 5 分钟水滴来袭、10 分钟决定，最后的宣布 15 分钟，空档 3 倍速，环节全开。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SwordholderRules {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bell: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meet: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handover: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speak_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vote_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appoint_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handover_minutes: Option<u32>,
+    /// 交接完成后过多久水滴来袭
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack_delay: Option<u32>,
+    /// 水滴来袭后执剑人有多久
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statement_minutes: Option<u32>,
+    /// 没有期限的时段世界按正常速度的几倍走
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free_tempo: Option<u32>,
+    /// 演说开始前现任执剑人说一句
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opening_remark: Option<bool>,
+    /// 投票前选民依次表态
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stances: Option<bool>,
+    /// 交接时现任执剑人对新执剑人说一句
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handover_remark: Option<bool>,
+    /// 交接后水滴来袭；关掉时交接完一局就结束（结局是 peace）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack: Option<bool>,
+    /// 结局定了以后三体世界的代表说最后一段话
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statement: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -7,7 +7,7 @@ mod werewolf;
 
 pub use swordholder::{
     SwordholderBallot, SwordholderContext, SwordholderDecision, SwordholderEnding, SwordholderLine,
-    SwordholderPhase, SwordholderRole, SwordholderSeat, SwordholderView,
+    SwordholderPhase, SwordholderRole, SwordholderRules, SwordholderSeat, SwordholderView,
 };
 pub use tide::{
     TideCircle, TideContext, TideFlare, TideNews, TideNewsKind, TidePhase, TidePlayer, TideView,
@@ -45,12 +45,14 @@ pub enum GameModeChoice {
         day_hours: Option<u32>,
     },
     /// 执剑人之夜：seed 定下两位候选人演说和选民表态的先后、平票时抽签；
-    /// day_hours 是白天自由活动几小时（天亮到 16:30 敲钟）
+    /// day_hours 是白天自由活动几小时（天亮到敲钟）；rules 是改过的钟点、期限和关掉的环节，不带就照原来的
     Swordholder {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seed: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         day_hours: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rules: Option<SwordholderRules>,
     },
 }
 

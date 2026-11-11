@@ -469,6 +469,28 @@ body:has(.map-launcher) {
   line-height: 16px;
   text-shadow: 0 1px 6px rgb(10 14 12 / 0.75);
 }
+/* 「显示哪些」展开后勾选项排在组名这一行里：卡片条横向滚动、会裁掉浮层，所以不做弹出框 */
+.map-group-manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: 10px;
+}
+.map-group-manage summary {
+  cursor: pointer;
+  opacity: 0.8;
+}
+.map-group-manage > div {
+  display: inline-flex;
+  gap: 12px;
+  white-space: nowrap;
+}
+.map-group-manage label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
 .map-group-cards {
   display: flex;
   align-items: flex-end;

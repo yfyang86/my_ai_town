@@ -113,9 +113,16 @@ impl World {
             GameModeChoice::Werewolf { seed, day_hours } => GameMode::Werewolf(
                 werewolf::Werewolf::open(self, seed.unwrap_or(1).max(1), *day_hours)?,
             ),
-            GameModeChoice::Swordholder { seed, day_hours } => GameMode::Swordholder(
-                swordholder::Swordholder::open(self, seed.unwrap_or(1).max(1), *day_hours)?,
-            ),
+            GameModeChoice::Swordholder {
+                seed,
+                day_hours,
+                rules,
+            } => GameMode::Swordholder(swordholder::Swordholder::open(
+                self,
+                seed.unwrap_or(1).max(1),
+                *day_hours,
+                rules.as_ref(),
+            )?),
         };
         self.game_mode = Some(mode);
         Ok(())
