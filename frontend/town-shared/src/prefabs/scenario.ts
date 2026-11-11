@@ -1,4 +1,10 @@
-import type { StorylineBeat, StorylineMilestone, StorylineScript } from '../protocol'
+import type {
+  RulesetChoice,
+  Srd5Sheet,
+  StorylineBeat,
+  StorylineMilestone,
+  StorylineScript,
+} from '../protocol'
 import type { Prefab, PrefabPersona } from '.'
 
 // 故事草稿：故事编辑器（选择小镇页的「写一个故事」）让模型按一段故事或提纲写出来的整套东西——
@@ -22,6 +28,8 @@ export interface StoryCharacter {
   /** 这个故事里想达成什么（只有本人知道） */
   goal: string
   secret?: string
+  /** 只在故事编辑器里用：改草稿时角色卡先放在各人身上，交回管理服务时理回 rules.sheets */
+  sheet?: Srd5Sheet
 }
 
 export interface StoryDraft {
@@ -37,6 +45,10 @@ export interface StoryDraft {
   ends_day: number
   ends_minute: number
   epilogue?: string
+  /** 开着第五版规则：每个角色一张角色卡（按座号）；节拍上的检定和遭遇战在 beats 里 */
+  rules?: RulesetChoice
+  /** 管理服务理草稿时去掉或换掉了什么，给人看的 */
+  notes?: string[]
 }
 
 /** 借来入住的村民库模板（只借名额和长相，人设用草稿里写的），最多 12 位 */
@@ -142,7 +154,24 @@ export function scenarioPrefab(draft: StoryDraft | null | undefined): Prefab | n
     needs: { fullness: true, energy: true, water: true, health: true, weather: true },
     needsDefault: draft.style.needs,
     needsHint: { on: '会饿会渴会困', off: '只看这个故事' },
-    options: [],
+    options: draft.rules
+      ? [
+          {
+            label: '规则',
+            choices: [
+              { value: 'none', label: '不掷骰', hint: '成不成全凭各人怎么说、怎么做' },
+              {
+                value: 'srd5',
+                label: '第五版规则',
+                hint: '每人一张角色卡；成不成说不准的事掷 d20，动手按回合打',
+              },
+            ],
+            initial: 'srd5',
+            field: 'ruleset',
+            values: { srd5: draft.rules },
+          },
+        ]
+      : [],
     limits: { calls_per_day: 600, tokens_per_day: 4_000_000 },
   }
 }

@@ -9,8 +9,8 @@ mod werewolf;
 
 pub use ruleset::{
     Abilities, CheckContest, CheckEdge, CheckWay, DiceRoll, Edge, EncounterFoe, FightView,
-    FighterView, RulesetChoice, RulesetView, Srd5Sheet, StorylineCheck, StorylineEncounter,
-    ABILITIES, SKILLS,
+    FighterView, RulesetChoice, RulesetView, Ruling, RulingKind, RulingRequest, Srd5Sheet,
+    StorylineCheck, StorylineEncounter, ABILITIES, SKILLS,
 };
 pub use storyline::{
     StorylineBeat, StorylineBeatState, StorylineBeatView, StorylineContext, StorylineLine,

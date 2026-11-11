@@ -229,6 +229,56 @@ pub struct DiceRoll {
     pub versus: Option<i32>,
 }
 
+/// 等主持人裁定的一件事：角色想做剧本里没有写成检定的事
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RulingRequest {
+    pub id: String,
+    /// 村民编号
+    pub actor: String,
+    /// 座号，从 1 数
+    pub seat: u32,
+    pub name: String,
+    /// 在故事里的身份（公开的那一句）
+    pub role: String,
+    /// 角色卡写成的一行
+    pub sheet: String,
+    /// 此刻在哪儿
+    pub place: String,
+    /// 想做什么
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RulingKind {
+    /// 掷一次检定
+    Roll,
+    /// 不用掷：做得到
+    Auto,
+    /// 做不到
+    Impossible,
+}
+
+/// 主持人的裁定：只能从这张单子里选，内核查过才掷骰。主持人不掷骰，也不定成败。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Ruling {
+    pub kind: RulingKind,
+    /// 掷检定时用哪项属性（六项之一）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ability: Option<String>,
+    /// 用哪项技能（十八项之一）；不写是纯属性检定
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill: Option<String>,
+    /// 难度：5、10、15、20、25 之一
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dc: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge: Option<Edge>,
+    /// 一句说明，念给在场的人听
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
 /// 名册里规则套件的那一块：每个座位的角色卡写成一行、最近掷的骰
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RulesetView {

@@ -18,6 +18,8 @@ trait Rules {
     fn clash(&mut self, world, actor, target, text) {} // someone used force on someone
     fn judge(&self, world, actor, draft: &ActionDraft) -> Result<()> { Ok(()) } // may refuse a core action
     fn takes_params(&self) -> bool { false }           // mode_action gets a `with` map
+    fn rulings(&self, world) -> Vec<RulingRequest> { vec![] } // things waiting for the host's narrator model
+    fn rule(&mut self, world, id, ruling: Option<&Ruling>) -> Result<String>; // the narrator's answer
 }
 ```
 
@@ -34,6 +36,7 @@ The core calls these and nothing else. The mode is taken out of the world while 
 | `clash` | `kernel/src/force.rs`, prop harm in physiology |
 | `judge` | `kernel/src/action_commands.rs`, before an agent's action group is queued (not for the player's avatar). One refusal rejects the whole group |
 | `takes_params` | `agent/src/tools.rs` — adds `with` to the `mode_action` schema only when true |
+| `rulings`, `rule` | `host/src/resident_driver.rs` (`narrate`), every tick. The kernel never calls a model; the host does and hands the answer back |
 
 What a mode does to the world today: write journal facts, send notices, interrupt actions, log (including speech), place and remove props, hurt or remove residents. It does not teleport anyone and has no generic way to forbid core actions.
 
@@ -163,6 +166,19 @@ A character's turn has a deadline of 15 game minutes — the same order as a sce
 | Long rest | A real sleep in the world of at least six hours: on waking, hit points, slots and second wind are back, and the character is told. Tracked in `Storyline::rest` from `World::awake` |
 | Experience | Winning an encounter splits its creatures' experience among the characters still alive; reaching a milestone in your own name gives 50. Levels 2 and 3 at 300 and 900: hit points rise, new slots are usable at once |
 | Duel | `mode_action duel` with `target` a seat: two characters in the same place fight by the same turn rules until one drops. Nobody dies, the loser comes round with 1 hit point, no experience. This is the only way to use force on a person while a ruleset is on |
+
+#### Narrator rulings
+
+A character may try something the script has no check for: `mode_action attempt` with `text`. Not during a fight or a scene; one pending per character; three per game hour.
+
+| Step | Where | What |
+| --- | --- | --- |
+| Ask | `Storyline::improvise` | The attempt is stored in the ruleset state (`Srd5.asks`) and survives a save |
+| Call | `host::narrator`, `agent::narrator` | The host asks the *asking resident's own model* once, with a closed menu: `roll` (one of six abilities, optionally one of eighteen skills, DC 5 / 10 / 15 / 20 / 25, advantage / disadvantage / neither), `auto`, or `impossible`, plus a one-line note |
+| Validate and roll | `Storyline::settle_ask` | Anything off the menu is discarded without a roll and the character is told to try another way. A legal `roll` is rolled by the kernel with the character's own bonus and logged like any check |
+| Give up | `Storyline::expire_asks` | No answer in 30 game minutes: the attempt lapses and the character is told |
+
+The narrator never rolls and never decides success. In mock-model mode the ruling is a fixed Strength (Athletics) DC 15.
 
 Not yet: short rests and hit dice, loot and potions, spells that help a scripted check, action surge and channel divinity, conditions beyond prone / dodging / unconscious / held, hit points reflected in the kernel's health meter.
 

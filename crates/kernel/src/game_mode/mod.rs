@@ -67,11 +67,37 @@ trait Rules {
     /// 有人对人动了手（推搡、抢、偷、搜身、拿道具伤人），text 是一句写好的经过，
     /// 比如「骆川用鱼叉刺白鸦，健康 −40」；玩法可以记进自己的战报。
     fn clash(&mut self, _world: &World, _actor: &str, _target: &str, _text: &str) {}
+    /// 等主持人（宿主那边的模型）裁定的事：宿主每拍来取，裁定好了用 `rule` 交回来。
+    /// 内核自己不调模型；没有这回事的玩法不用管。
+    fn rulings(&self, _world: &World) -> Vec<protocol::RulingRequest> {
+        Vec::new()
+    }
+    /// 主持人交回一项裁定（None 是没裁出来）；不合规矩的不掷骰，说明原因
+    fn rule(
+        &mut self,
+        _world: &mut World,
+        _id: &str,
+        _ruling: Option<&protocol::Ruling>,
+    ) -> Result<String> {
+        Err(KernelError::action("这个玩法没有要裁定的事"))
+    }
 }
 
 /// 一本故事模式的剧本合不合规（开局时也查这一遍）：故事编辑器交草稿前先问。
 pub fn check_storyline(script: &protocol::StorylineScript) -> Result<()> {
     storyline::check(script)
+}
+
+pub use srd5::RulesetWords;
+
+/// 第五版规则里有的东西（技能、职业、武器、甲、生物、法术）的编号和名字
+pub fn ruleset_words() -> RulesetWords {
+    srd5::words()
+}
+
+/// 一张第五版规则的角色卡合不合规
+pub fn check_sheet(sheet: &protocol::Srd5Sheet) -> Result<()> {
+    srd5::check_sheet(sheet)
 }
 
 /// 世界里开着的玩法。存档里写成 `{"tide": {...}}`。一个世界只有一份，各玩法大小不一不要紧。
@@ -214,6 +240,28 @@ impl World {
             return Err(KernelError::action("现在没有开着的玩法"));
         };
         let result = each!(&mut mode, m => m.act(self, actor, action));
+        self.game_mode = Some(mode);
+        result
+    }
+
+    /// 等主持人裁定的事（见 `Rules::rulings`）；没开玩法时是空的
+    pub fn game_mode_rulings(&self) -> Vec<protocol::RulingRequest> {
+        self.game_mode
+            .as_ref()
+            .map(|g| each!(g, m => m.rulings(self)))
+            .unwrap_or_default()
+    }
+
+    /// 主持人交回一项裁定（见 `Rules::rule`）
+    pub fn game_mode_rule(
+        &mut self,
+        id: &str,
+        ruling: Option<&protocol::Ruling>,
+    ) -> Result<String> {
+        let Some(mut mode) = self.game_mode.take() else {
+            return Err(KernelError::action("现在没有开着的玩法"));
+        };
+        let result = each!(&mut mode, m => m.rule(self, id, ruling));
         self.game_mode = Some(mode);
         result
     }

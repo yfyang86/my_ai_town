@@ -13,7 +13,9 @@ use protocol::{
     SwordholderRules, SwordholderView, TideCircle, TideFlare, TideNewsKind, TidePhase, TideView,
     WerewolfOut, WerewolfPhase, WerewolfRole, WerewolfSide, WerewolfView,
 };
-use protocol::{CheckContest, CheckEdge, Edge, EncounterFoe, StorylineEncounter};
+use protocol::{
+    CheckContest, CheckEdge, Edge, EncounterFoe, Ruling, RulingKind, StorylineEncounter,
+};
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -1804,6 +1806,152 @@ fn fifth_edition_duels_heal_between_fights_and_recover_with_a_long_rest() {
     let copy = common::restore(&w, common::world_with(topo(), 7.0 * HOUR, &people));
     assert_eq!(card(&w, "r3"), card(&copy, "r3"));
     assert_eq!(card(&w, "r1"), card(&copy, "r1"));
+}
+
+/// 临场裁定：角色想做剧本里没写的事，等主持人从单子里选（哪项属性和技能、五档难度、有没有优势），
+/// 骰子是内核掷的；单子外的裁定不掷骰、作罢；一人一次只能有一件在等，一小时最多三件；主持人迟迟不回就作罢。
+/// 不开规则时没有这个动作。
+#[test]
+fn fifth_edition_narrator_rulings_come_from_a_closed_menu() {
+    let people = [
+        ("r1", "阿塔", "loc_a"),
+        ("r2", "老镇", "loc_a"),
+        ("r3", "阿渔", "loc_a"),
+        ("r4", "远客", "loc_b"),
+    ];
+    let fresh = || common::world_with(common::tiny_topology(), 7.0 * HOUR, &people);
+    let mut script = lighthouse_script();
+    for beat in &mut script.beats {
+        beat.day = 2;
+    }
+    script.ends_day = 2;
+    let open = |w: &mut World, rules: bool| {
+        w.set_game_mode(Some(&GameModeChoice::Storyline {
+            seed: Some(6),
+            script: Box::new(script.clone()),
+            ruleset: rules.then(|| RulesetChoice::Srd5 {
+                sheets: lighthouse_sheets(),
+            }),
+        }))
+        .unwrap()
+    };
+    let attempt = |w: &mut World, id: &str, text: Option<&str>| {
+        let action = GameModeAction {
+            action: "attempt".into(),
+            target: None,
+            text: text.map(str::to_owned),
+            reason: None,
+            with: Default::default(),
+        };
+        w.game_mode_act(id, &action).map_err(|e| e.to_string())
+    };
+    let ruling = |kind, ability: Option<&str>, skill: Option<&str>, dc, edge| Ruling {
+        kind,
+        ability: ability.map(str::to_owned),
+        skill: skill.map(str::to_owned),
+        dc,
+        edge,
+        note: Some("门轴锈死了".into()),
+    };
+    let rolls = |w: &World| storyline(w).ruleset.unwrap().rolls;
+    let can = |w: &World, id: &str| {
+        story_context(w, id)
+            .actions
+            .contains(&"attempt".to_string())
+    };
+
+    let mut plain = fresh();
+    open(&mut plain, false);
+    assert!(attempt(&mut plain, "r1", Some("撬开灯塔的门")).is_err());
+    assert!(plain.game_mode_rulings().is_empty());
+
+    let mut w = fresh();
+    open(&mut w, true);
+    assert!(can(&w, "r1"));
+    assert!(attempt(&mut w, "r1", None).is_err());
+    attempt(&mut w, "r1", Some("用肩膀撞开灯塔的门")).unwrap();
+    let asked = w.game_mode_rulings();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(
+        (
+            asked[0].seat,
+            asked[0].name.as_str(),
+            asked[0].text.as_str()
+        ),
+        (1, "阿塔", "用肩膀撞开灯塔的门")
+    );
+    assert!(asked[0].sheet.starts_with("战士 1 级"));
+    // 一次只能有一件在等
+    assert!(!can(&w, "r1"));
+    assert!(attempt(&mut w, "r1", Some("再踹一脚")).is_err());
+    // 单子外的难度、不认得的技能：不掷骰，这件事作罢
+    let odd = ruling(
+        RulingKind::Roll,
+        Some("str"),
+        Some("athletics"),
+        Some(12),
+        None,
+    );
+    assert!(w.game_mode_rule(&asked[0].id, Some(&odd)).is_err());
+    assert!(rolls(&w).is_empty() && w.game_mode_rulings().is_empty());
+    attempt(&mut w, "r1", Some("用肩膀撞开灯塔的门")).unwrap();
+    let id = w.game_mode_rulings()[0].id.clone();
+    let odd = ruling(
+        RulingKind::Roll,
+        Some("str"),
+        Some("lockpicking"),
+        Some(15),
+        None,
+    );
+    assert!(w.game_mode_rule(&id, Some(&odd)).is_err());
+    assert!(rolls(&w).is_empty());
+    // 合规矩的裁定：内核掷骰（有优势掷两颗），加的是这个人自己的加值
+    attempt(&mut w, "r1", Some("用肩膀撞开灯塔的门")).unwrap();
+    let id = w.game_mode_rulings()[0].id.clone();
+    let fair = ruling(
+        RulingKind::Roll,
+        Some("str"),
+        Some("athletics"),
+        Some(15),
+        Some(Edge::Advantage),
+    );
+    let outcome = w.game_mode_rule(&id, Some(&fair)).unwrap();
+    assert!(
+        outcome.contains("用力量·运动，难度 15（门轴锈死了）"),
+        "{outcome}"
+    );
+    let roll = rolls(&w).pop().unwrap();
+    assert_eq!((roll.dice.len(), roll.modifier, roll.dc), (2, 5, Some(15)));
+    assert_eq!(roll.success, Some(roll.total >= 15));
+    assert!(
+        w.game_mode_rule(&id, Some(&fair)).is_err(),
+        "裁过的不能再裁"
+    );
+    // 一小时三件到头了；别人不受影响，不用掷的和做不到的都不掷骰
+    assert!(attempt(&mut w, "r1", Some("翻窗进去")).is_err());
+    attempt(&mut w, "r2", Some("推开没锁的门")).unwrap();
+    attempt(&mut w, "r3", Some("徒手把灯塔搬走")).unwrap();
+    let pending = w.game_mode_rulings();
+    let auto = ruling(RulingKind::Auto, None, None, None, None);
+    let never = ruling(RulingKind::Impossible, None, None, None, None);
+    assert!(w
+        .game_mode_rule(&pending[0].id, Some(&auto))
+        .unwrap()
+        .contains("做到了"));
+    assert!(w
+        .game_mode_rule(&pending[1].id, Some(&never))
+        .unwrap()
+        .contains("做不到"));
+    assert_eq!(rolls(&w).len(), 1);
+    // 过了一个小时又能问；主持人半小时没回就作罢；存档里带着等裁定的事
+    w.step(61.0);
+    attempt(&mut w, "r1", Some("翻窗进去")).unwrap();
+    let copy = common::restore(&w, fresh());
+    assert_eq!(copy.game_mode_rulings(), w.game_mode_rulings());
+    w.step(31.0);
+    assert!(w.game_mode_rulings().is_empty() && can(&w, "r1"));
+    w.set_game_mode(None).unwrap();
+    no_trace(&w);
 }
 
 fn mode_act_on(w: &mut World, id: &str, action: &str, target: &str, text: &str) {

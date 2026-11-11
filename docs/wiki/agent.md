@@ -17,6 +17,8 @@
 | `tools.rs`, `tools/*` | Tool table and execution: actions, `mode_action`, `recall`, `memory_search`, `memory_read`, `reflect`, … |
 | `prompts.rs`, `prompts/*.txt` | Fixed prompt texts |
 | `story.rs` | Story editor: prompt for a story draft, tolerant parsing and normalisation (`tidy`), conversion to a `StorylineScript` |
+| `story/rules.rs` | The fifth-edition half of a draft: a sheet per character, checks and encounters on beats. The prompt lists every class, skill, weapon, armour, spell and creature the kernel knows (`kernel::game_mode::ruleset_words`). Each item is probed against the kernel on its own; what fails is dropped or replaced by a default and recorded in `draft.notes` |
+| `narrator.rs` | Prompt and tolerant reply parser for narrator rulings (see game-modes → Narrator rulings) |
 | `completion.rs`, `completion/local.rs`, `builtin.rs` | OpenAI-compatible bodies and parsing; local Qwen via Ollama; built-in fine-tuned model template |
 | `context/*` | Folding long histories, summaries, bounded views |
 | `session.rs` | The saved session (history cursors, `memory`, `notebook`, budgets) |
