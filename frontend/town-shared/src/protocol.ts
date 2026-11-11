@@ -645,8 +645,8 @@ export type GameModeChoice =
   | { kind: 'tide'; seed?: number }
   /** 狼人杀：seed 定下谁拿什么身份；day_hours 是白天自由活动几小时（天亮到 16:30 敲钟） */
   | { kind: 'werewolf'; seed?: number; day_hours?: number }
-  /** 执剑人之夜：seed 定下演说和表态的先后、平票时抽签；day_hours 是白天自由活动几小时（天亮到 16:30 敲钟） */
-  | { kind: 'swordholder'; seed?: number; day_hours?: number }
+  /** 执剑人之夜：seed 定下演说和表态的先后、平票时抽签；day_hours 是白天自由活动几小时（天亮到敲钟）；rules 是改过的规则 */
+  | { kind: 'swordholder'; seed?: number; day_hours?: number; rules?: SwordholderRules }
 
 /** 潮水圈里的一个圈：圆心和半径都是行走地图上的米（x 和地面上的 z） */
 export interface TideCircle {
@@ -764,7 +764,28 @@ export type SwordholderPhase =
   | 'aftermath'
   | 'over'
 /** 结局：按下了（引力波广播发出），或没按、到点（威慑失败，天线被毁） */
-export type SwordholderEnding = 'broadcast' | 'failed'
+export type SwordholderEnding = 'broadcast' | 'failed' | 'peace'
+
+/** 执剑人之夜开局时可以改的规则：钟点是当天第几分钟，期限是游戏分钟；不写的照原来的 */
+export interface SwordholderRules {
+  bell?: number
+  meet?: number
+  handover?: number
+  speak_minutes?: number
+  vote_minutes?: number
+  appoint_minutes?: number
+  handover_minutes?: number
+  attack_delay?: number
+  attack_minutes?: number
+  statement_minutes?: number
+  free_tempo?: number
+  opening_remark?: boolean
+  stances?: boolean
+  handover_remark?: boolean
+  /** 关掉时交接完一局就结束，结局是 peace */
+  attack?: boolean
+  statement?: boolean
+}
 /** 一个座位；gone 是法官没经手就不在了（被人害死、饿死、离开） */
 export interface SwordholderSeat {
   seat: number

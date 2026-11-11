@@ -426,6 +426,13 @@ test('home settings save a key only into the data root config, read back only it
     const config = path.join(root, 'config')
     assert.ok((await fs.readFile(path.join(config, 'credentials.json'), 'utf8')).includes(key))
     assert.ok(!(await fs.readFile(path.join(config, 'providers.json'), 'utf8')).includes(key))
+    // 选择小镇页不显示哪些剧本：记在数据目录里，编号不合规矩的整份拒收
+    assert.deepEqual(await api('/prefabs'), { hidden: [] })
+    assert.deepEqual(await api('/prefabs', { hidden: ['werewolf', 'swordholder', 'werewolf'] }), {
+      hidden: ['swordholder', 'werewolf'],
+    })
+    await assert.rejects(api('/prefabs', { hidden: ['../x'] }), /剧本编号无效/)
+    assert.deepEqual(await api('/prefabs'), { hidden: ['swordholder', 'werewolf'] })
     // 首页只能加和改：少带一个服务商就拒绝，免得用着它的村民找不到模型
     await assert.rejects(api('/models', { active: null, providers: kept, keys: [] }), /不能删除/)
     assert.ok((await api('/models')).providers.some((p) => p.id === added.id))

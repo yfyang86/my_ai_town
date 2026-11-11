@@ -149,6 +149,23 @@ fn town_api_needs_session_and_static_files_stay_in_web_dir() {
         assert!(response.contains(id), "{response}");
     }
 
+    // 选择小镇页不显示哪些剧本：和电脑上的管理服务一样的接口，编号不合规矩的整份拒收
+    let hidden = serde_json::json!({ "hidden": ["werewolf", "swordholder", "werewolf"] });
+    let (status, saved) = post(&manager, "/prefabs", &hidden);
+    assert_eq!(status, 200);
+    assert_eq!(
+        saved["hidden"],
+        serde_json::json!(["swordholder", "werewolf"])
+    );
+    let bad = serde_json::json!({ "hidden": ["../x"] });
+    assert_eq!(post(&manager, "/prefabs", &bad).0, 400);
+    let (status, response) = manager.get("/api/towns/prefabs", &cookie);
+    assert_eq!(status, 200);
+    assert!(
+        response.contains(r#"["swordholder","werewolf"]"#),
+        "{response}"
+    );
+
     // 写操作还要应用自己的请求头：别的网页带不上，就发不出跨站请求
     let post = format!(
         "POST /api/towns/default-town/close HTTP/1.1\r\nHost: 127.0.0.1\r\n{cookie}Content-Type: text/plain\r\n"

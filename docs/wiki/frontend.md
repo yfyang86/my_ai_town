@@ -15,7 +15,17 @@ DOM is built with helpers in `town-shared/src/dom.ts` (`el`, `button`, `$`). Pan
 
 ## Prefabs (`town-shared/src/prefabs/`)
 
-A `Prefab` is a TS object: `worldview`, map `spec`, `gameMode`, `roster` (template ids), optional `cast` (personas + looks), `climate`, `limits`, `furnish` (props to remove and place), player range, needs switches, and `options`. Registered in `PREFABS`.
+A `Prefab` is a TS object: `worldview`, map `spec`, `gameMode`, `roster` (template ids), optional `cast` (personas + looks), `climate`, `limits`, `furnish` (props to remove and place), player range, needs switches, `options` and `rules`. Registered in `PREFABS`.
+
+Options and rules are plain data, so a prefab can be produced by a tool rather than written by hand:
+
+- `PrefabOption` — a segmented row; `field` is a dotted path into the `GameModeChoice` (`day_hours`, `seed`), `number` parses the value.
+- `PrefabRule` — a row inside the collapsed 「规则」 section: `kind` is `time`, `minutes` or `switch`, `field` is a path such as `rules.bell`, `initial` must equal the kernel default. Only edited rules are sent; an untouched section sends nothing.
+- `withField` / `applyOption` fold the picked values into the choice.
+
+The setup screen also has a collapsed 「人设」 section: each seat's name, intro, personality, situation and drives can be edited for this game only (never written back to the villager library). A seat locks once its resident has moved in.
+
+The selection page can hide scripted towns (「显示哪些」 beside the 剧本 group); the list is stored by the manager (`/api/towns/prefabs`), and hiding never touches a game already played.
 
 From card to running game:
 

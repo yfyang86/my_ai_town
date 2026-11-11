@@ -7,9 +7,9 @@ use kernel::{
 };
 use protocol::{
     FactKind, GameModeAction, GameModeChoice, GameModeContext, GameModeView, GroupStatus,
-    PhysiologySwitches, SwordholderEnding, SwordholderPhase, SwordholderRole, SwordholderView,
-    TideCircle, TideFlare, TideNewsKind, TidePhase, TideView, WerewolfOut, WerewolfPhase,
-    WerewolfRole, WerewolfSide, WerewolfView,
+    PhysiologySwitches, SwordholderEnding, SwordholderPhase, SwordholderRole, SwordholderRules,
+    SwordholderView, TideCircle, TideFlare, TideNewsKind, TidePhase, TideView, WerewolfOut,
+    WerewolfPhase, WerewolfRole, WerewolfSide, WerewolfView,
 };
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
@@ -593,6 +593,115 @@ fn werewolf(w: &World) -> WerewolfView {
     }
 }
 
+/// 改过规则的一局：10:00 敲钟、10:10 演说、11:00 交接，现任执剑人的两句话、选民表态、水滴来袭和最后的宣布都关掉。
+/// 只剩两位候选人演说和投票，交接完就收场（结局是 peace）；投票中途存档读档，规则跟着存档走。
+/// 钟点排反了、白天排不下时开不了，原来的世界不受影响。
+#[test]
+fn swordholder_night_follows_edited_rules_and_skips_switched_off_phases() {
+    let ids: Vec<String> = (1..=6).map(|n| format!("r{n}")).collect();
+    let names = ["罗辑", "程心", "维德", "智子", "艾AA", "老秦"];
+    let people: Vec<(&str, &str, &str)> = ids
+        .iter()
+        .zip(names)
+        .map(|(id, name)| (id.as_str(), name, "loc_a"))
+        .collect();
+    let fresh = || {
+        let mut w = common::world_with(common::tiny_topology(), 7.0 * HOUR, &people);
+        w.set_physiology(PhysiologySwitches {
+            fullness: false,
+            energy: false,
+            water: false,
+            health: false,
+            weather: false,
+        });
+        w
+    };
+    let open = |w: &mut World, day_hours: u32, rules: SwordholderRules| {
+        w.set_game_mode(Some(&GameModeChoice::Swordholder {
+            seed: Some(5),
+            day_hours: Some(day_hours),
+            rules: Some(rules),
+        }))
+    };
+    let mut w = fresh();
+    let backwards = SwordholderRules {
+        bell: Some(700),
+        meet: Some(650),
+        ..Default::default()
+    };
+    assert!(open(&mut w, 2, backwards).is_err());
+    let early = SwordholderRules {
+        bell: Some(300),
+        meet: Some(310),
+        ..Default::default()
+    };
+    assert!(open(&mut w, 8, early).is_err());
+    assert!(w.game_mode().is_none());
+
+    let rules = SwordholderRules {
+        bell: Some(600),
+        meet: Some(610),
+        handover: Some(660),
+        speak_minutes: Some(5),
+        opening_remark: Some(false),
+        stances: Some(false),
+        handover_remark: Some(false),
+        attack: Some(false),
+        statement: Some(false),
+        ..Default::default()
+    };
+    open(&mut w, 2, rules).unwrap();
+    // 08:00 天亮：议程照改过的钟点说，没有关掉的环节
+    w.step(1.1 * HOUR);
+    let told = w.actor("r5").unwrap().journal.events_after(0);
+    let agenda = told.iter().find(|e| e.text.contains("身份是")).unwrap();
+    assert!(agenda.text.contains("10:00 敲钟"), "{}", agenda.text);
+    assert!(agenda.text.contains("11:00 在"), "{}", agenda.text);
+    assert!(!agenda.text.contains("表态") && !agenda.text.contains("先说一句"));
+
+    let mut reloaded = false;
+    for _ in 0..600 {
+        let v = swordholder(&w);
+        if v.phase == SwordholderPhase::Over {
+            break;
+        }
+        if v.phase == SwordholderPhase::Vote && v.ballots.len() == 1 && !reloaded {
+            reloaded = true;
+            w = common::restore(&w, fresh());
+            assert_eq!(swordholder(&w), v);
+        }
+        let mut acted = false;
+        for id in &ids {
+            let Some(GameModeContext::Swordholder(c)) = w.game_mode_context(id) else {
+                continue;
+            };
+            match c.actions.first().map(String::as_str) {
+                Some("speak") => mode_act(&mut w, id, "speak", None, Some("我想说几句。")),
+                Some("vote") => mode_act(&mut w, id, "vote", Some(2), None),
+                _ => continue,
+            }
+            acted = true;
+            break;
+        }
+        if !acted {
+            w.step(5.0);
+        }
+    }
+    let v = swordholder(&w);
+    assert!(reloaded);
+    assert_eq!(v.phase, SwordholderPhase::Over);
+    assert_eq!(v.ending, Some(SwordholderEnding::Peace));
+    assert_eq!((v.elected, v.swordholder), (Some(2), 2));
+    assert!(v.decision.is_none());
+    // 只有两位候选人的演说：现任执剑人的两句、选民表态和三体代表的宣布都没有
+    let occasions: Vec<&str> = v.lines.iter().map(|l| l.occasion.as_str()).collect();
+    assert_eq!(occasions, ["演说", "演说"]);
+    // 11:00 交接完就收场，不用等到 19:00
+    assert!(w.minutes() < 12.0 * HOUR, "{}", w.minutes());
+    w.set_game_mode(None).unwrap();
+    no_trace(&w);
+}
+
 fn wolf_context(w: &World, id: &str) -> protocol::WerewolfContext {
     match w.game_mode_context(id) {
         Some(GameModeContext::Werewolf(c)) => c,
@@ -643,7 +752,7 @@ fn werewolf_judge_runs_a_whole_game_through_turns_deadlines_and_a_reload() {
     assert!(few
         .set_game_mode(Some(&GameModeChoice::Werewolf {
             seed: Some(3),
-            day_hours: None
+            day_hours: None,
         }))
         .is_err());
     assert!(few.game_mode().is_none());
@@ -920,7 +1029,8 @@ fn play_swordholder(press: bool) {
     assert!(few
         .set_game_mode(Some(&GameModeChoice::Swordholder {
             seed: Some(3),
-            day_hours: None
+            day_hours: None,
+            rules: None,
         }))
         .is_err());
     assert!(few.game_mode().is_none());
@@ -928,9 +1038,13 @@ fn play_swordholder(press: bool) {
     w.set_game_mode(Some(&GameModeChoice::Swordholder {
         seed: Some(5),
         day_hours: Some(8),
+        rules: None,
     }))
     .unwrap();
     assert_eq!(w.game_mode(), Some("swordholder"));
+    // 没改规则：存档里没有规则这一项，和加规则之前的存档一字不差
+    let saved = serde_json::to_value(w.snapshot()).unwrap();
+    assert!(saved["game_mode"]["swordholder"].get("rules").is_none());
     let v = swordholder(&w);
     let roles: Vec<SwordholderRole> = v.seats.iter().map(|s| s.role).collect();
     use SwordholderRole::*;

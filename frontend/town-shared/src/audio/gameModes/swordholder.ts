@@ -14,6 +14,7 @@ export const swordholderMusic: GameModeMusic<'swordholder'> = {
   },
   sting(view, before) {
     if (view.phase === 'attack' && before.phase !== 'attack') return 'murder'
+    if (view.ending === 'peace') return null
     if (view.ending && !before.ending) return view.ending === 'failed' ? 'death' : 'tide-rise'
     if (view.phase === 'gather' && before.phase !== 'gather') return 'tide-announce'
     return view.revealed && !before.revealed ? 'tide-rise' : null

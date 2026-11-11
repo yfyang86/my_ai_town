@@ -18,6 +18,7 @@ POST bodies are JSON with header `x-town-client: 1`, at most 1 MB. Errors are `{
 | POST `/:id/delete` | Delete (not built-ins) | ✓ | ✓ |
 | POST `/:id/reset` | Wipe a `prefab-*` town's save | ✓ | ✓ |
 | POST `/:id/positions` | Persist prop layout | ✓ | ✓ |
+| GET/POST `/prefabs` | Which scripted towns the selection page lists: `{hidden: [prefab id]}` | ✓ | ✓ |
 | GET `/options` | Creator options, model availability | full | `{generation: 'client', model}` |
 | POST `/parse` | One sentence → build plan (model call) | via `town-map parse` | in-process |
 | POST `/preview` | Run generator, return draft | ✓ | refuses (page generates) |
@@ -36,7 +37,7 @@ On desktop the generator (`scripts/mapgen`) runs in the manager. In the apps it 
 ```
 <root>/
   manager.lock/                 single-manager lock
-  config/                       application.json, providers.json, credentials.json
+  config/                       application.json, providers.json, credentials.json, launcher.json
   resident-library/             custom villager templates
   builtin-model/                downloaded model files
   towns/<id>/

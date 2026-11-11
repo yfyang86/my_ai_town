@@ -72,7 +72,8 @@ export const werewolf: Prefab = {
         { value: '9', label: '9 小时', hint: '最像过日子，也最花钱' },
       ],
       initial: '6',
-      apply: (choice, value) => ({ ...choice, day_hours: Number(value) }),
+      field: 'day_hours',
+      number: true,
     },
   ],
 }

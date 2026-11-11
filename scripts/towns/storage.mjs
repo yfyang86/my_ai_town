@@ -87,6 +87,13 @@ export function townCreation(value) {
     ...(prefab ? { prefab } : {}),
   }
 }
+/** 选择小镇页不显示的剧本编号：小写字母、数字和连字符，最多 64 个 */
+export function hiddenPrefabs(value) {
+  if (!Array.isArray(value) || value.length > 64) throw Error('剧本名单无效')
+  for (const id of value)
+    if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(id)) throw Error('剧本编号无效')
+  return [...new Set(value)].sort()
+}
 export function safeId(id) {
   if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,90}$/.test(id)) throw Error('小镇编号无效')
   return id
@@ -148,6 +155,17 @@ export class Storage {
     }
   }
   // 内置小镇：随应用发的（BUILTIN_TOWNS），和预制玩法的 prefab-<编号>（第一次选中时生成，只能重新开始）
+  /** 选择小镇页的摆法（和手机上的管理服务共用一个文件）：现在只有不显示的剧本 */
+  async launcher() {
+    const file = path.join(this.root, 'config', 'launcher.json')
+    const saved = await readJson(file).catch(() => ({}))
+    return { hidden: hiddenPrefabs(saved.hidden_prefabs ?? []) }
+  }
+  async setLauncher({ hidden }) {
+    const next = { hidden_prefabs: hiddenPrefabs(hidden) }
+    await atomicJson(path.join(this.root, 'config', 'launcher.json'), next)
+    return { hidden: next.hidden_prefabs }
+  }
   canDelete(id) {
     safeId(id)
     return !builtinMap(id) && !id.startsWith('prefab-')

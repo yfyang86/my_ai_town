@@ -15,10 +15,18 @@ import type {
 import { segmented, settingRow, switchControl } from '../settings/controls'
 import type { ShellPanel } from '../shell/panel'
 import type { createWorldSettings } from '../worldSettings'
-import type { Prefab, PrefabOption, PrefabPersona } from '.'
+import {
+  applyOption,
+  withField,
+  type Prefab,
+  type PrefabOption,
+  type PrefabPersona,
+  type PrefabRule,
+} from '.'
 
 // 开局设置：第一次进预制小镇（还没设世界观）时代替开局向导。玩家只改几项：人数、每位选手用的模型、
 // 玩法自己的几行（预制小镇的 options：圈的位置、身份、白天长短……）、吃喝睡开不开；
+// 想细调的再展开「规则」（钟点、期限、关掉哪些环节）和「人设」（这一局每位选手的名字、性格、处境，只管这一局）；
 // 世界观、玩法和其余设定由预制小镇写好。
 // 点「开始这一局」依次保存世界观、生理开关，定气候、布置地图上的道具、调额度（预制小镇写了才做），
 // 按号码请人入住（入住时带上各自的模型；有这一局自己的人设时带上人设），换上这一局捏好的长相，最后打开玩法；
@@ -72,6 +80,12 @@ export function createPrefabSetup(d: {
   const picks = new Map<string, string>()
   const seeds = new Map<string, number>()
   let needs = true
+  /** 「规则」里改过的项（按写进玩法设置的路径）；没改的不在里面 */
+  const ruleValues = new Map<string, number | boolean>()
+  /** 这一局改过的人设（按号码，从 0 数）；没改的字段照预制小镇写的 */
+  const personaEdits = new Map<number, Partial<PrefabPersona>>()
+  /** 「规则」「人设」展开着没有：重画以后保持原样 */
+  const unfolded = new Set<string>()
   /** 村民库里的名字和头像编号（模板编号 → …），读到之前显示号码 */
   const names = new Map<string, string>()
   const keys = new Map<string, string>()
@@ -153,7 +167,9 @@ export function createPrefabSetup(d: {
     )
     const rows = el('div', '', 'set-rows prefab-settings')
     rows.append(modelRow(p, options, used), ...p.options.map(optionRow), needsRow(p))
-    body.replaceChildren(head, lineup(p, options, used.size > 1), rows)
+    const extras: HTMLElement[] = []
+    for (const box of [rulesFold(p), castFold(p)]) if (box) extras.push(box)
+    body.replaceChildren(head, lineup(p, options, used.size > 1), rows, ...extras)
 
     const go = button(running ? '正在开局…' : '开始这一局', () => void start(), 'primary')
     go.disabled = running
@@ -180,7 +196,7 @@ export function createPrefabSetup(d: {
     const pickable = options.length > 1
     for (let i = 0; i < p.players.max; i++) {
       const id = p.roster[i]
-      const name = p.cast?.[i]?.name ?? names.get(id) ?? ''
+      const name = personaOf(p, i)?.name ?? names.get(id) ?? ''
       const on = i < players
       const cell = el('div', '', 'prefab-player')
       cell.classList.toggle('off', !on)
@@ -299,6 +315,133 @@ export function createPrefabSetup(d: {
     toggle.set(needs)
     toggle.el.disabled = running || needsSaved
     return settingRow('吃喝睡', needs ? p.needsHint.on : p.needsHint.off, toggle.el)
+  }
+
+  /** 这一位选手这一局的人设：预制小镇写的，盖上玩家在「人设」里改的 */
+  function personaOf(p: Prefab, i: number): PrefabPersona | undefined {
+    const base = p.cast?.[i]
+    return base ? { ...base, ...personaEdits.get(i) } : undefined
+  }
+
+  /** 收起来的一栏；展开没展开记在 unfolded 里 */
+  function fold(key: string, label: string, note: string) {
+    const box = el('details', '', 'prefab-fold')
+    box.open = unfolded.has(key)
+    box.ontoggle = () => (box.open ? unfolded.add(key) : unfolded.delete(key))
+    const summary = el('summary')
+    summary.append(el('b', label), el('small', note))
+    box.append(summary)
+    return box
+  }
+
+  const clockOf = (minute: number) =>
+    `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`
+
+  /** 「规则」：钟点、期限和可以关掉的环节。只记改过的项，「恢复默认」全部清掉 */
+  function rulesFold(p: Prefab) {
+    if (!p.rules?.length) return null
+    const locked = running || modeSaved
+    const box = fold(
+      'rules',
+      '规则',
+      ruleValues.size ? `改了 ${ruleValues.size} 项` : '钟点、期限和环节都照原样'
+    )
+    const rows = el('div', '', 'set-rows prefab-settings')
+    const change = (r: PrefabRule, value: number | boolean) => {
+      if (value === r.initial) ruleValues.delete(r.field)
+      else ruleValues.set(r.field, value)
+      render()
+    }
+    for (const r of p.rules) {
+      const value = ruleValues.get(r.field) ?? r.initial
+      if (r.kind === 'switch') {
+        const toggle = switchControl(r.label, (on) => change(r, on))
+        toggle.set(value === true)
+        toggle.el.disabled = locked
+        rows.append(settingRow(r.label, r.hint, toggle.el))
+        continue
+      }
+      const input = el('input', '', 'prefab-rule')
+      input.disabled = locked
+      input.setAttribute('aria-label', r.label)
+      const min = r.min ?? 0
+      const max = r.max ?? 1439
+      if (r.kind === 'time') {
+        input.type = 'time'
+        input.value = clockOf(Number(value))
+        input.onchange = () => {
+          const [h, m] = input.value.split(':').map(Number)
+          const minute = h * 60 + m
+          if (Number.isFinite(minute)) change(r, Math.min(max, Math.max(min, minute)))
+          else render()
+        }
+      } else {
+        input.type = 'number'
+        input.min = String(min)
+        input.max = String(max)
+        input.value = String(value)
+        input.onchange = () => {
+          const n = Math.floor(Number(input.value))
+          if (Number.isFinite(n)) change(r, Math.min(max, Math.max(min, n)))
+          else render()
+        }
+      }
+      const control = el('label', '', 'prefab-rule-line')
+      control.append(input, ...(r.kind === 'minutes' ? ['分钟'] : []))
+      rows.append(settingRow(r.label, r.hint, control))
+    }
+    const reset = button('恢复默认', () => {
+      ruleValues.clear()
+      render()
+    })
+    reset.disabled = locked || !ruleValues.size
+    box.append(rows, reset)
+    return box
+  }
+
+  /** 「人设」：这一局每位选手的名字和几段人设，改了只管这一局；已经住进来的不能再改 */
+  function castFold(p: Prefab) {
+    if (!p.cast?.length) return null
+    const box = fold(
+      'cast',
+      '人设',
+      personaEdits.size ? `改了 ${personaEdits.size} 位` : '每位选手的名字、性格和处境'
+    )
+    const fields: { key: keyof PrefabPersona; label: string; long?: boolean }[] = [
+      { key: 'name', label: '名字' },
+      { key: 'intro', label: '一句话简介' },
+      { key: 'personality', label: '性格', long: true },
+      { key: 'situation', label: '今天的处境', long: true },
+      { key: 'drives', label: '想要什么', long: true },
+    ]
+    for (let i = 0; i < players; i++) {
+      const base = p.cast[i]
+      if (!base) continue
+      const now = personaOf(p, i) ?? base
+      const locked = running || joined[i] !== undefined
+      const one = fold(`cast-${i}`, `${i + 1} 号 ${now.name}`, personaEdits.has(i) ? '改过' : '')
+      one.classList.add('prefab-persona')
+      for (const f of fields) {
+        const input = f.long ? el('textarea') : el('input')
+        input.value = String(now[f.key] ?? '')
+        input.disabled = locked
+        input.onchange = () => {
+          const text = input.value.trim()
+          const edits = { ...personaEdits.get(i) }
+          // 名字不能空；改回原样就不算改过
+          if (text === String(base[f.key] ?? '') || (f.key === 'name' && !text)) delete edits[f.key]
+          else Object.assign(edits, { [f.key]: text })
+          if (Object.keys(edits).length) personaEdits.set(i, edits)
+          else personaEdits.delete(i)
+          render()
+        }
+        const line = el('label', '', 'prefab-field')
+        line.append(el('span', f.label), input)
+        one.append(line)
+      }
+      box.append(one)
+    }
+    return box
   }
 
   function setPlayers(n: number) {
@@ -471,7 +614,7 @@ export function createPrefabSetup(d: {
         status = `正在请 ${i + 1} 号入住…`
         joining = i
         render()
-        joined[i] = await join(p.roster[i], slotModel(i), p.cast?.[i])
+        joined[i] = await join(p.roster[i], slotModel(i), personaOf(p, i))
         joining = -1
       }
       if (p.cast?.some((c) => c.look) && !dressed) {
@@ -483,11 +626,16 @@ export function createPrefabSetup(d: {
       if (!modeSaved) {
         status = '正在打开玩法…'
         render()
-        const choice = p.options.reduce((c, o) => {
+        const picked = p.options.reduce((c, o) => {
           const value = picks.get(o.label) ?? o.initial
           const seed = o.seed && value === o.seed ? (seeds.get(o.label) ?? DEFAULT_SEED) : null
-          return o.apply(c, value, seed)
+          return applyOption(c, o, value, seed)
         }, p.gameMode)
+        // 「规则」里改过的项；一项没改时玩法设置里没有这一栏
+        const choice = [...ruleValues].reduce(
+          (c, [field, value]) => withField(c, field, value),
+          picked
+        )
         await saved((done) => ws.saveGameMode(choice, done))
         modeSaved = true
       }
@@ -536,6 +684,9 @@ export function createPrefabSetup(d: {
       players = p.players.default
       models = []
       needs = p.needsDefault
+      ruleValues.clear()
+      personaEdits.clear()
+      unfolded.clear()
       root.hidden = false
       d.send({ type: 'get_resident_library', filter: { kind: 'builtin' } })
       render()
