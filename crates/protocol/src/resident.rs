@@ -193,6 +193,9 @@ pub struct ResidentAgentView {
     #[serde(default)]
     pub interactions: Vec<ResidentInteractionView>,
     pub memories: Vec<ResidentMemoryView>,
+    /// 最近几觉的梦，新的在前；没做过梦就没有这一项
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dreams: Vec<ResidentDreamView>,
     pub daily_calls: u64,
     pub daily_limit: u64,
     pub daily_tokens: u64,
@@ -358,6 +361,17 @@ pub struct ResidentGoalView {
     pub commitment: String,
     pub next_steps: Vec<String>,
     pub updated_at: f64,
+}
+
+/// 一觉的梦：哪天醒来时做的、梦见了什么、提炼出几条认识、放下了几条记忆
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResidentDreamView {
+    /// 第几天（从 1 数）
+    pub day: u32,
+    pub at: f64,
+    pub text: String,
+    pub insights: u32,
+    pub let_go: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

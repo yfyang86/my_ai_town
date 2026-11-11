@@ -53,6 +53,10 @@ impl MemoryRecord {
     /// 要紧程度（0–1）：梦里提炼的认识最高，反复失败得来的经验其次，别人说的话、公告、读到的东西
     /// 比日常见闻要紧；受保护的加一截；按可信度打折。检索时和相关度、新旧合成一个分。
     pub fn importance(&self) -> f64 {
+        // 玩法叫人交动作的通知（「轮到你……用 mode_action 交……」）是当时该怎么操作，过后不值得记
+        if self.kind == MemoryKind::Episode && self.text.contains("mode_action") {
+            return 0.1;
+        }
         let base = match self.kind {
             MemoryKind::Insight => 0.9,
             MemoryKind::Experience => 0.7,

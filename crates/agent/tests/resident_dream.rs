@@ -170,6 +170,14 @@ fn a_night_of_sleep_becomes_one_dream_with_insights_and_forgetting() {
     assert!(dream.dreams[0].text.contains("图书馆"));
     assert_eq!(s.notebook.failures, 0);
     assert!(s.memory.validate(&w, "r1").is_ok());
+    // 侧栏里看得到这一觉的梦
+    let view = r.view(&w, "r1").expect("有 Agent 会话");
+    assert_eq!(view.dreams.len(), 1);
+    assert_eq!((view.dreams[0].insights, view.dreams[0].let_go), (1, 1));
+    // 玩法叫人交动作的通知过后不值得记：比一句日常见闻还不要紧
+    let mut notice = s.memory.records[0].clone();
+    notice.text = "【故事】轮到你说话：用 mode_action 交 speak".into();
+    assert!(notice.importance() < s.memory.records[(routine - 1) as usize].importance());
     // 以后按词查，梦里想明白的排在最前面
     let mut index = MemoryIndex::new().unwrap();
     let found = index

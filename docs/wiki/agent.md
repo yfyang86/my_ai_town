@@ -54,7 +54,7 @@ Nothing is ever deleted; records only become `Superseded`.
 | --- | --- |
 | relevance | BM25, normalised to 0–1 within the result set |
 | recency | halves every two game days |
-| importance | `MemoryRecord::importance()`: insight 0.9, experience 0.7, recognition 0.5, notices / speech / readings 0.5, other episodes 0.35 or 0.2; +0.2 if protected; scaled by confidence |
+| importance | `MemoryRecord::importance()`: insight 0.9, experience 0.7, recognition 0.5, notices / speech / readings 0.5, other episodes 0.35 or 0.2; +0.2 if protected; scaled by confidence. Mode instructions ("your turn… use `mode_action`") score 0.1 — they say how to operate, not what happened |
 
 Used in two places:
 
@@ -68,6 +68,8 @@ The runtime tells the store every poll whether the resident is asleep. On waking
 1. **`settle` — no model needed.** Routine episodes with no content, older than three days and already reflected, become `Superseded`.
 2. **A dream is due** if at least six memories are new since the last dream. It is planned like a reflection round (same request kind, budget, retries, and the rule that unacknowledged notices come first) but with its own system prompt (`prompts/resident_dream.txt`), its own material — the sixteen most important new memories, with ids, plus the text of anything read — and a single tool, `dream`.
 3. The model returns up to four **insights** (each citing memory ids from the material), memories to **let go**, and a few sentences of **dream**. Insights become `Insight` records carrying the evidence's events and objects, so both word and object lookups find them. Let-go applies only to unprotected episodes from the material. The dream text is kept per day in `MemoryStore.dream.dreams` (last 30).
+
+The resident's agent view carries the five most recent dreams (`ResidentAgentView.dreams`); the info panel shows them under 「梦」.
 
 One dream per sleep. If the model does not deliver, that sleep's dream is dropped without counting as a reflection failure. A store that has never slept serialises exactly as before.
 

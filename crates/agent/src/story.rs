@@ -86,7 +86,7 @@ const PROMPT: &str = r#"你是一个故事编排者。下面是用户给的一�
 规则：
 - cast 正好 CAST 个，座号按数组次序从 1 数；who、speakers、seats 里都填座号。
 - places 用 3–8 个，kind 只能从这张表里选：KINDS。每个角色的住处会自动安排，不要写住宅。
-- beats 用 3–8 个，按时间先后排，安排在白天和傍晚（360–1320 分钟）；scene 是一场轮流说话的戏，speakers 按次序每人说一段，重要的当面交锋才用，没有就不写这一项。who 不写表示所有人。
+- beats 用 3–8 个，按时间先后排，安排在白天和傍晚（360–1320 分钟）；scene 是一场轮流说话的戏，speakers 按次序每人说一段，只给最要紧的两三次当面交锋用（最多一半的节拍有 scene），其余节拍不写这一项，让角色自己去找人说。who 不写表示所有人。
 - milestones 用 3–6 个，when 有三种：{"kind":"beat","beat":节拍编号} 这个节拍发生了；{"kind":"gather","place":地点名字,"seats":[座号],"count":人数} 这些人里至少几个同时到了这个地点；{"kind":"declare","seats":[座号]} 由这些人里的某一个宣布它发生了。结局性的事（谁赢了、谁认了错、买卖成没成）用 declare，交给当事人自己宣布。secret 为 true 时只有能宣布它的人知道。
 - 收场要排在最后一个节拍之后。
 - 用和提纲相同的语言写。
@@ -341,6 +341,20 @@ pub fn tidy(raw: &Value, choices: &Choices) -> Result<Value, String> {
         return Err("故事里至少要有一个节拍".into());
     }
     beats.sort_by_key(|(at, _)| *at);
+    // 轮流说话的戏最多占一半的节拍（至少留一场）：模型爱给每个节拍都排一场，演起来又长又费。
+    // 留说话的人多的几场，其余的节拍只宣布、不开戏。
+    let allowed = beats.len().div_ceil(2);
+    let mut staged: Vec<(usize, usize)> = beats
+        .iter()
+        .enumerate()
+        .filter_map(|(i, (_, b))| Some((i, b["scene"]["speakers"].as_array()?.len())))
+        .collect();
+    staged.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    for (i, _) in staged.into_iter().skip(allowed) {
+        if let Some(beat) = beats[i].1.as_object_mut() {
+            beat.remove("scene");
+        }
+    }
     let last = beats.last().map_or(0, |(at, _)| *at);
     let beats: Vec<Value> = beats.into_iter().map(|(_, b)| b).collect();
     // 里程碑：指不到节拍或地点的去掉
@@ -610,6 +624,24 @@ mod tests {
             &choices()
         )
         .is_err());
+        // 模型给每个节拍都排了戏：只留一半（说话的人多的几场），其余节拍只宣布
+        let mut chatty: Value = serde_json::from_str(&mock_reply("戏太多", 4, &choices())).unwrap();
+        chatty["beats"] = json!([
+            {"id":"a","title":"一","day":1,"minute":500,"announce":"一。","scene":{"speakers":[1,2]}},
+            {"id":"b","title":"二","day":1,"minute":600,"announce":"二。","scene":{"speakers":[1,2,3,4]}},
+            {"id":"c","title":"三","day":1,"minute":700,"announce":"三。","scene":{"speakers":[3]}},
+            {"id":"d","title":"四","day":1,"minute":800,"announce":"四。","scene":{"speakers":[1,2,3]}},
+        ]);
+        chatty["milestones"] = json!([]);
+        let trimmed = tidy(&chatty, &choices()).unwrap();
+        let staged: Vec<&str> = trimmed["beats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b.get("scene").is_some())
+            .map(|b| b["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(staged, ["b", "d"]);
         // 假模型的回复也走得通
         let mock = mock_reply("一个测试故事", 4, &choices());
         assert_eq!(
