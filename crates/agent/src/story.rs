@@ -7,6 +7,8 @@ use protocol::StorylineScript;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 
+mod rules;
+
 pub const OUTLINE_MAX_CHARS: usize = 6000;
 pub const CAST: std::ops::RangeInclusive<u64> = 2..=12;
 pub const DAYS: std::ops::RangeInclusive<u64> = 1..=3;
@@ -18,6 +20,8 @@ const MILESTONES_MAX: usize = 12;
 pub struct Choices {
     pub kinds: Vec<(String, String)>,
     pub presets: Vec<(String, String)>,
+    /// 开着第五版规则：草稿里另有角色卡、检定和遭遇战
+    pub rules: bool,
 }
 
 fn pairs(value: &Value, id: &str) -> Vec<(String, String)> {
@@ -46,7 +50,11 @@ impl Choices {
         if kinds.is_empty() || presets.is_empty() {
             return Err("缺少可用的地点种类或风格".into());
         }
-        Ok(Self { kinds, presets })
+        Ok(Self {
+            kinds,
+            presets,
+            rules: body["rules"] == "srd5",
+        })
     }
 }
 
@@ -108,13 +116,18 @@ pub fn prompt(outline: &str, cast: u64, days: u64, choices: &Choices) -> String 
         .map(|(id, name)| format!("{id}（{name}）"))
         .collect::<Vec<_>>()
         .join("、");
+    let (head, tail) = PROMPT.split_once("提纲：").unwrap_or((PROMPT, ""));
     format!(
-        "{}{}",
-        PROMPT
-            .replace("CAST", &cast.to_string())
+        "{}{}提纲：{tail}{}",
+        head.replace("CAST", &cast.to_string())
             .replace("DAYS", &days.to_string())
             .replace("PRESET_IDS", &ids)
             .replace("KINDS", &join(&choices.kinds)),
+        if choices.rules {
+            rules::prompt()
+        } else {
+            String::new()
+        },
         outline.trim()
     )
 }
@@ -319,6 +332,12 @@ pub fn tidy(raw: &Value, choices: &Choices) -> Result<Value, String> {
                 one.insert("who".into(), json!(who));
             }
             one.insert("announce".into(), json!(announce));
+            // 规则套件的检定和遭遇战先原样带着，最后由 rules::settle 理好或者拿掉
+            for extra in ["checks", "encounter"] {
+                if !b[extra].is_null() {
+                    one.insert(extra.into(), b[extra].clone());
+                }
+            }
             let brief = clip(&b["brief"], 600);
             if !brief.is_empty() {
                 one.insert("brief".into(), json!(brief));
@@ -400,6 +419,8 @@ pub fn tidy(raw: &Value, choices: &Choices) -> Result<Value, String> {
                     }
                     when
                 }
+                // 靠检定、遭遇战达成的：指的是哪一项先原样带着，rules::settle 再对
+                kind @ ("check" | "encounter") => json!({ "kind": kind, kind: clip(&w[kind], 64) }),
                 _ => return None,
             };
             let secret = m["secret"].as_bool().unwrap_or(false) && when["kind"] == "declare";
@@ -445,6 +466,11 @@ pub fn tidy(raw: &Value, choices: &Choices) -> Result<Value, String> {
     if !epilogue.is_empty() {
         draft["epilogue"] = json!(epilogue);
     }
+    rules::settle(
+        &mut draft,
+        raw,
+        choices.rules || raw["rules"]["kind"] == "srd5",
+    )?;
     // 交给内核查一遍：这里理过还不合规的，说明原因
     kernel::game_mode::check_storyline(&script(&draft)?).map_err(|e| e.to_string())?;
     Ok(draft)
@@ -502,7 +528,7 @@ pub fn mock_reply(outline: &str, cast: u64, choices: &Choices) -> String {
         .collect();
     let kind = &choices.kinds[0];
     let title: String = outline.trim().chars().take(8).collect();
-    json!({
+    let mut story = json!({
         "title": if title.is_empty() { "假故事".to_string() } else { title },
         "premise": "镇上出了一件事，大家要在今天说清楚。",
         "worldview": "一座安静的小镇。",
@@ -521,8 +547,23 @@ pub fn mock_reply(outline: &str, cast: u64, choices: &Choices) -> String {
         ],
         "ends_day": 1, "ends_minute": 900,
         "epilogue": "天黑了。",
-    })
-    .to_string()
+    });
+    if choices.rules {
+        // 开着规则：头一个人带一张角色卡（其余的由 tidy 给默认的），当面说之后有一项检定
+        story["cast"][0]["sheet"] =
+            json!({ "class": "rogue", "skills": ["persuasion", "deception"] });
+        story["beats"][1]["checks"] = json!([{
+            "id": "convince", "title": "说动大家", "detail": "在场的人信了你的话", "dc": 13,
+            "ways": [{ "ability": "cha", "skill": "persuasion" }],
+        }]);
+        if let Some(list) = story["milestones"].as_array_mut() {
+            list.push(json!({
+                "id": "convinced", "title": "大家信了", "detail": "有人说动了大家",
+                "when": { "kind": "check", "check": "convince" },
+            }));
+        }
+    }
+    story.to_string()
 }
 
 #[cfg(test)]
@@ -536,6 +577,7 @@ mod tests {
                 ("cafe".into(), "咖啡馆".into()),
             ],
             presets: vec![("coastal-village".into(), "海岸乡镇".into())],
+            rules: false,
         }
     }
 
@@ -651,5 +693,121 @@ mod tests {
                 .len(),
             4
         );
+    }
+
+    /// 开着第五版规则的草稿：角色卡照规则理（认不得的职业当战士、属性换成标准的六个数、别的职业的法术去掉、
+    /// 没写的给默认的）；检定和遭遇战一项一项让内核查，认不得的生物、没写清楚的检定只去掉那一项并留一句说明；
+    /// 指着去掉了的那一项的里程碑跟着去掉。理过的草稿再理一遍不变。不开规则时这些都不带。
+    #[test]
+    fn rules_drafts_keep_what_is_sound_and_drop_only_what_is_not() {
+        let mut raw: Value = serde_json::from_str(&mock_reply("灯塔", 3, &choices())).unwrap();
+        raw["cast"][0]["sheet"] = json!({
+            "class": "wizard",
+            "abilities": {"str": 8, "dex": 14, "con": 13, "int": 18, "wis": 12, "cha": 10},
+            "skills": ["arcana", "history", "stealth", "lockpicking"],
+            "weapon": "greatsword of doom", "armor": "leather",
+            "spells": ["fire_bolt", "cure_wounds", "wish", "magic_missile"],
+        });
+        raw["cast"][1]["sheet"] = json!({"class": "bard", "skills": ["athletics"]});
+        raw["beats"][0]["checks"] = json!([
+            {"id": "calm", "title": "稳住人群", "dc": 13, "ways": [{"skill": "persuasion"}, {"ability": "luck"}]},
+            {"id": "vague", "title": "看运气", "ways": [{"ability": "luck"}]},
+        ]);
+        raw["beats"][0]["encounter"] = json!({
+            "id": "rats", "title": "地窖里的老鼠", "zones": ["地窖口", "地窖里"], "party": [1, 2],
+            "foes": [{"creature": "giant_rat", "name": "大老鼠", "zone": 1}, {"creature": "dragon", "zone": 1}],
+        });
+        raw["beats"][1]["encounter"] =
+            json!({"id": "boss", "title": "龙", "foes": [{"creature": "dragon"}]});
+        for (id, kind, target) in [
+            ("m1", "check", "calm"),
+            ("m2", "check", "vague"),
+            ("m3", "encounter", "rats"),
+            ("m4", "encounter", "boss"),
+        ] {
+            raw["milestones"].as_array_mut().unwrap().push(json!({
+                "id": id, "title": format!("里程碑 {id}"), "detail": "…", "when": {"kind": kind, kind: target},
+            }));
+        }
+        let plain = tidy(&raw, &choices()).unwrap();
+        assert!(plain["rules"].is_null() && plain["notes"].is_null());
+        assert!(plain["beats"][0]["checks"].is_null() && plain["beats"][0]["encounter"].is_null());
+        assert_eq!(plain["milestones"].as_array().unwrap().len(), 2);
+
+        let on = Choices {
+            rules: true,
+            ..choices()
+        };
+        let draft = tidy(&raw, &on).unwrap();
+        let sheets = draft["rules"]["sheets"].as_array().unwrap();
+        assert_eq!(draft["rules"]["kind"], "srd5");
+        assert_eq!(sheets.len(), 3);
+        // 法师：智力最高拿 15，敏捷第二拿 14；职业单子里的两项加一项出身；别的职业的和没有的法术去掉
+        assert_eq!(sheets[0]["class"], "wizard");
+        assert_eq!(
+            (
+                &sheets[0]["abilities"]["int"],
+                &sheets[0]["abilities"]["dex"]
+            ),
+            (&json!(15), &json!(14))
+        );
+        assert_eq!(sheets[0]["skills"], json!(["arcana", "history", "stealth"]));
+        assert_eq!(sheets[0]["spells"], json!(["fire_bolt", "magic_missile"]));
+        assert!(sheets[0]["weapon"].is_null());
+        // 没有的职业当战士；没写角色卡的也是一张合规的战士
+        assert_eq!(
+            (&sheets[1]["class"], &sheets[2]["class"]),
+            (&json!("fighter"), &json!("fighter"))
+        );
+        assert_eq!(sheets[2]["abilities"]["str"], 15);
+        let beats = draft["beats"].as_array().unwrap();
+        let checks = beats[0]["checks"].as_array().unwrap();
+        assert_eq!(checks.len(), 1);
+        assert_eq!(
+            checks[0]["ways"],
+            json!([{"ability": "cha", "skill": "persuasion"}])
+        );
+        assert_eq!(beats[0]["encounter"]["foes"].as_array().unwrap().len(), 1);
+        assert!(beats[1]["encounter"].is_null());
+        let marks: Vec<&str> = draft["milestones"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(marks, ["talked", "settled", "m1", "m3"]);
+        let notes = draft["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for part in [
+            "没有「bard」这个职业",
+            "没写清楚试什么",
+            "没有规则里有的对手",
+            "里程碑「里程碑 m2」",
+            "里程碑「里程碑 m4」",
+        ] {
+            assert!(notes.contains(part), "{part}\n{notes}");
+        }
+        // 页面改过的草稿交回来再理：不带 rules 这个开关也认得，内容不变，说明不重复
+        let again = tidy(&draft, &choices()).unwrap();
+        assert!(again["notes"].is_null(), "{}", again["notes"]);
+        let mut first = draft.clone();
+        first.as_object_mut().unwrap().remove("notes");
+        assert_eq!(again, first);
+        // 提示词里列着能用的东西
+        let text = prompt("灯塔要关了", 3, 1, &on);
+        for part in [
+            "giant_rat",
+            "wizard 法师",
+            "persuasion 游说（cha）",
+            "提纲：\n灯塔要关了",
+        ] {
+            assert!(text.contains(part), "{part}");
+        }
+        assert!(!prompt("灯塔要关了", 3, 1, &choices()).contains("giant_rat"));
     }
 }

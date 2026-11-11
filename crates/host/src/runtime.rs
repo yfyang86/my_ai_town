@@ -549,11 +549,15 @@ impl Runtime {
                 true
             }
         };
+        let narrated =
+            self.driver
+                .narrate(&mut self.world, &self.population, &self.settings, clients);
         let requests = self.driver.runtime.poll(&mut self.world, running);
         let held = self.hold_if_needed(clients);
         let changed = inventory_before != self.world.inventory().revision()
             || content_before != self.world.contents().revision()
             || replied
+            || narrated
             || held
             || !requests.is_empty();
         // 周期存盘失败只在刚开始失败时通知客户端，之后每拍重试、不重复刷屏。

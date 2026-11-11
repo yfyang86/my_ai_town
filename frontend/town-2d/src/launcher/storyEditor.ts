@@ -1,7 +1,12 @@
 import { button, el } from 'town-shared/dom'
 import { errorText } from 'town-shared/format'
 import { newId } from 'town-shared/ids'
-import type { StorylineBeat, StorylineMilestone, StorylineWhen } from 'town-shared/protocol'
+import type {
+  CheckWay,
+  StorylineBeat,
+  StorylineMilestone,
+  StorylineWhen,
+} from 'town-shared/protocol'
 import { specOf, type StoryCharacter, type StoryDraft } from 'town-shared/prefabs/scenario'
 import { plannerKinds } from '../../../../scripts/mapgen/plan.mjs'
 import library from '../../../../data/mapgen/templates.json'
@@ -22,6 +27,27 @@ const KINDS: { kind: string; name: string }[] = plannerKinds(library.templates)
   .map(({ kind, name }: { kind: string; name: string }) => ({ kind, name }))
 const PRESETS = STYLE_PRESETS.map(({ id, name }) => ({ id, name }))
 const OUTLINE_MAX = 6000
+const CLASSES = [
+  { value: 'fighter', label: '战士' },
+  { value: 'rogue', label: '游荡者' },
+  { value: 'cleric', label: '牧师' },
+  { value: 'wizard', label: '法师' },
+]
+const idsOf = (text: string) =>
+  text
+    .split(/[\s,，、]+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+const wayText = (w: CheckWay) => (w.skill ?? w.ability) + (w.save ? ' 豁免' : '')
+
+/** 改草稿时把角色卡放到各人身上：删掉一个角色，他的卡跟着走，不会和别人的串了 */
+function spread(draft: StoryDraft): StoryDraft {
+  if (draft.rules) {
+    draft.cast.forEach((c, i) => (c.sheet = draft.rules?.sheets[i]))
+    draft.rules.sheets = []
+  }
+  return draft
+}
 
 const clockOf = (minute: number) =>
   `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`
@@ -60,6 +86,7 @@ export function initStoryEditor(d: {
   let outline = ''
   let people = 6
   let days = 1
+  let rules = false
   let draft: StoryDraft | null = null
   let busy = false
   let status = ''
@@ -186,7 +213,8 @@ export function initStoryEditor(d: {
         String(days),
         [1, 2, 3].map((n) => ({ value: String(n), label: `${n} 天` })),
         (v) => (days = Number(v))
-      )
+      ),
+      check('用第五版规则：角色卡、掷骰检定、遭遇战', rules, (v) => (rules = v))
     )
     const line = el('p', '', 'story-model')
     if (!model) line.textContent = '正在问模型能不能用…'
@@ -219,10 +247,17 @@ export function initStoryEditor(d: {
     try {
       const reply = await api<{ draft: StoryDraft }>(
         '/story',
-        { outline, cast: people, days, kinds: KINDS, presets: PRESETS },
+        {
+          outline,
+          cast: people,
+          days,
+          kinds: KINDS,
+          presets: PRESETS,
+          ...(rules && { rules: 'srd5' }),
+        },
         AbortSignal.any([abort.signal, AbortSignal.timeout(300000)])
       )
-      draft = reply.draft
+      draft = spread(reply.draft)
       status = ''
       step = 'review'
     } catch (error) {
@@ -246,7 +281,66 @@ export function initStoryEditor(d: {
       field('性格', c.personality, (v) => (c.personality = v), { long: true }),
       field('说话方式', c.speech, (v) => (c.speech = v)),
       field('经历', c.background, (v) => (c.background = v), { long: true }),
+      ...sheetFields(c),
     ]
+  }
+
+  /** 角色卡（开着第五版规则的草稿才有）：职业能选，其余填规则里的编号，建镇时管理服务照规则理一遍 */
+  function sheetFields(c: StoryCharacter) {
+    const sheet = c.sheet
+    if (!sheet) return []
+    const a = sheet.abilities
+    return [
+      pick('职业', sheet.class, CLASSES, (v) => (sheet.class = v)),
+      el(
+        'p',
+        `属性：力量 ${a.str} · 敏捷 ${a.dex} · 体质 ${a.con} · 智力 ${a.int} · 感知 ${a.wis} · 魅力 ${a.cha}`,
+        'story-hint'
+      ),
+      field('技能', (sheet.skills ?? []).join('、'), (v) => (sheet.skills = idsOf(v)), {
+        hint: '技能编号，如 athletics、persuasion；不合职业的建镇时会换掉',
+      }),
+      field('武器', sheet.weapon ?? '', (v) => (sheet.weapon = v.trim() || undefined)),
+      field('甲', sheet.armor ?? '', (v) => (sheet.armor = v.trim() || undefined)),
+      field('法术', (sheet.spells ?? []).join('、'), (v) => (sheet.spells = idsOf(v)), {
+        hint: '只有牧师和法师有；空着给一份默认的',
+      }),
+    ]
+  }
+
+  /** 节拍上的检定和遭遇战（开着第五版规则的草稿才有）：名字和难度能改，整项能删 */
+  function ruleLines(b: StorylineBeat) {
+    const lines: HTMLElement[] = []
+    for (const c of b.checks ?? []) {
+      const row = el('div', '', 'story-row')
+      row.append(
+        field('检定', c.title, (v) => (c.title = v)),
+        field('难度', String(c.dc), (v) => (c.dc = Math.min(25, Math.max(5, Number(v) || 13))), {
+          type: 'number',
+          hint: `办法：${c.ways.map(wayText).join('、')}`,
+        }),
+        button('删掉这项检定', () => {
+          b.checks = b.checks?.filter((x) => x !== c)
+          render()
+        })
+      )
+      lines.push(row)
+    }
+    const fight = b.encounter
+    if (fight) {
+      const row = el('div', '', 'story-row')
+      row.append(
+        field('遭遇战', fight.title, (v) => (fight.title = v), {
+          hint: `场地：${fight.zones.join(' — ')}；对手：${fight.foes.map((f) => f.name ?? f.creature).join('、')}`,
+        }),
+        button('删掉这场架', () => {
+          b.encounter = undefined
+          render()
+        })
+      )
+      lines.push(row)
+    }
+    return lines
   }
 
   function placeOptions(draft: StoryDraft) {
@@ -288,6 +382,7 @@ export function initStoryEditor(d: {
         },
         { hint: '按次序填座号，每人说一段；空着就没有这场戏' }
       ),
+      ...ruleLines(b),
     ]
   }
 
@@ -321,7 +416,7 @@ export function initStoryEditor(d: {
           type: 'number',
         })
       )
-    // 靠检定达成的（开着规则套件的故事才有）：编辑器还不排检定，照原样留着
+    // 靠检定、遭遇战达成的（开着规则套件的故事才有）：指的哪一项不在这里改，删了那一项它跟着去掉
     else if (w.kind === 'check') how.push(el('p', `通过检定「${w.check}」时达成`))
     else if (w.kind === 'encounter') how.push(el('p', `打赢遭遇战「${w.encounter}」时达成`))
     else
@@ -388,6 +483,32 @@ export function initStoryEditor(d: {
       end,
       field('收场白', draft.epilogue ?? '', (v) => (draft.epilogue = v || undefined))
     )
+    if (draft.rules) {
+      const drop = button('不用规则', () => {
+        draft.rules = undefined
+        draft.notes = undefined
+        for (const c of draft.cast) c.sheet = undefined
+        for (const b of draft.beats) {
+          b.checks = undefined
+          b.encounter = undefined
+        }
+        draft.milestones = draft.milestones.filter(
+          (m) => m.when.kind !== 'check' && m.when.kind !== 'encounter'
+        )
+        render()
+      })
+      drop.disabled = busy
+      basics.append(
+        el('h3', '第五版规则'),
+        el(
+          'p',
+          '每个角色有一张角色卡（在「角色」里），节拍上可以带检定和遭遇战（在「节拍」里）。进镇时还能选不掷骰。',
+          'story-hint'
+        ),
+        ...(draft.notes ?? []).map((n) => el('p', `· ${n}`, 'story-hint')),
+        drop
+      )
+    }
     const used = new Set(draft.beats.map((b) => b.id))
     const fresh = (prefix: string, taken: Set<string>) => {
       for (let n = taken.size + 1; ; n++) if (!taken.has(`${prefix}-${n}`)) return `${prefix}-${n}`
@@ -454,7 +575,7 @@ export function initStoryEditor(d: {
         kinds: KINDS,
         presets: PRESETS,
       })
-      draft = tidy
+      draft = spread(structuredClone(tidy))
       status = '正在按故事里的地点生成小镇…'
       render()
       const request = creationRequest()

@@ -28,6 +28,8 @@ What is taken from it in this repository
   saving throw and concentration.
 - The fighter's Second Wind and the rogue's Sneak Attack.
 - The long rest; experience points by creature and the experience needed for levels 2 and 3.
+- The table of typical Difficulty Classes (5 to 25) and the standard set of ability scores
+  (15, 14, 13, 12, 10, 8), used by the narrator's rulings and by drafted character sheets.
 
 Where it is used
 - crates/protocol/src/game_mode/ruleset.rs
@@ -36,6 +38,7 @@ Where it is used
 - data/rules/5e/creatures.json
 - data/rules/5e/spells.json
 - crates/kernel/src/game_mode/combat.rs
+- crates/agent/src/narrator.rs, crates/agent/src/story/rules.rs (prompts that list the above)
 - frontend/town-shared/src/prefabs/lighthouse.ts (character sheets and checks for the optional rules switch)
 
 Only material in SRD 5.1 may be added. Content that is not in the SRD (settings, named characters, and creatures

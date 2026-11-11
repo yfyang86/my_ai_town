@@ -16,7 +16,9 @@ use protocol::{
     StorylineContext, StorylineLine, StorylineMilestoneView, StorylineScript, StorylineSeat,
     StorylineView, StorylineWhen,
 };
-use protocol::{CheckWay, DeathCause, Edge, EventActor, Killing};
+use protocol::{
+    CheckWay, DeathCause, Edge, EventActor, Killing, Ruling, RulingKind, RulingRequest,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -32,6 +34,15 @@ const SCENE_MINUTES: std::ops::RangeInclusive<u32> = 1..=120;
 const SCENE_CHARS: std::ops::RangeInclusive<u32> = 20..=600;
 /// 宣布里程碑时写的经过、交动作时写的理由最多多少字
 const EVIDENCE_CHARS: usize = 200;
+/// 主持人裁定时能选的难度
+const RULING_DCS: [u32; 5] = [5, 10, 15, 20, 25];
+/// 一个人每个游戏小时最多请主持人裁定几件事
+const ASKS_PER_HOUR: usize = 3;
+/// 主持人这么久没裁出来就作罢（游戏分钟）
+const ASK_WAIT_MINUTES: f64 = 30.0;
+const NOTE_CHARS: usize = 80;
+/// 临场裁定在骰子记录里的名字留这么长
+const ASK_TITLE_CHARS: usize = 24;
 const REASON_CHARS: usize = 120;
 /// 有「几个人同时在某地」的里程碑没达成时，隔这么久看一次
 const WATCH_MINUTES: f64 = 5.0;
@@ -552,6 +563,175 @@ impl Storyline {
             world.interrupt_actions(&id, "故事里轮到你了");
         }
         world.notify(&id, text.to_string());
+    }
+
+    // ---------- 临场裁定（开着规则套件才有） ----------
+
+    /// 角色想做一件剧本里没写成检定的事：记下来等主持人裁定。一人一次只能有一件在等，每小时有上限。
+    fn improvise(
+        &mut self,
+        world: &mut World,
+        i: usize,
+        action: &GameModeAction,
+    ) -> Result<String> {
+        if self.fighting() {
+            return Err(bad("正打着，先把这场架打完"));
+        }
+        if self.scene.is_some() {
+            return Err(bad("戏还没散，等这场戏完了再说"));
+        }
+        let text = action
+            .text
+            .as_deref()
+            .map(|t| clip(t, EVIDENCE_CHARS).0)
+            .filter(|t| !t.is_empty())
+            .ok_or_else(|| bad("想做什么：text 里写清楚你要做的事和怎么做"))?;
+        let now = world.minutes();
+        let Some(rules) = &mut self.rules else {
+            return Err(bad("这个故事没有开规则"));
+        };
+        if rules.asks.iter().any(|a| a.seat == i) {
+            return Err(bad("上一件事主持人还没裁定，等结果出来再说"));
+        }
+        rules.asked.retain(|(_, at)| now - at < 60.0);
+        if rules.asked.iter().filter(|(seat, _)| *seat == i).count() >= ASKS_PER_HOUR {
+            return Err(bad(format!(
+                "这一个小时里你已经请主持人裁定了 {ASKS_PER_HOUR} 件事，过一阵再说"
+            )));
+        }
+        rules.ask_seq += 1;
+        rules.asked.push((i, now));
+        rules.asks.push(srd5::Ask {
+            id: format!("ask-{}", rules.ask_seq),
+            seat: i,
+            text,
+            at: now,
+        });
+        Ok("交给主持人裁定了：要不要掷骰、掷什么、多难，结果出来会告诉你".into())
+    }
+
+    /// 主持人迟迟没裁出来的事作罢，告诉本人
+    fn expire_asks(&mut self, world: &mut World) {
+        let now = world.minutes();
+        let Some(rules) = &mut self.rules else {
+            return;
+        };
+        let (late, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut rules.asks)
+            .into_iter()
+            .partition(|a| now - a.at >= ASK_WAIT_MINUTES);
+        rules.asks = kept;
+        for ask in late {
+            let text = format!(
+                "{}主持人没有回应你想做的事（{}），这件事作罢，可以换个办法。",
+                self.tag(),
+                ask.text
+            );
+            self.call(world, ask.seat, &text);
+        }
+    }
+
+    /// 主持人交回的裁定：只认单子里的选项。掷骰和成败都在这里。
+    fn settle_ask(
+        &mut self,
+        world: &mut World,
+        id: &str,
+        ruling: Option<&Ruling>,
+    ) -> Result<String> {
+        let now = world.minutes();
+        let Some(rules) = &mut self.rules else {
+            return Err(bad("这个故事没有开规则"));
+        };
+        let Some(k) = rules.asks.iter().position(|a| a.id == id) else {
+            return Err(bad("没有这件等裁定的事（也许已经作罢了）"));
+        };
+        let ask = rules.asks.remove(k);
+        let seat = ask.seat;
+        if !self.here(world, seat) {
+            return Err(bad("这个人已经不在了"));
+        }
+        let void = |this: &Self, world: &mut World, why: String| {
+            let text = format!(
+                "{}主持人对你想做的事（{}）没有给出合规矩的裁定，这件事作罢，可以换个办法。",
+                this.tag(),
+                ask.text
+            );
+            this.call(world, seat, &text);
+            Err(bad(why))
+        };
+        let Some(ruling) = ruling else {
+            return void(self, world, "主持人没有裁出来".into());
+        };
+        let note = ruling
+            .note
+            .as_deref()
+            .map(|n| clip(n, NOTE_CHARS).0)
+            .filter(|n| !n.is_empty())
+            .map(|n| format!("（{n}）"))
+            .unwrap_or_default();
+        let outcome = match ruling.kind {
+            RulingKind::Auto => format!("不用掷骰，做到了{note}"),
+            RulingKind::Impossible => format!("做不到{note}"),
+            RulingKind::Roll => {
+                let way = CheckWay {
+                    ability: ruling.ability.clone().unwrap_or_default(),
+                    skill: ruling.skill.clone(),
+                    save: false,
+                };
+                if let Err(e) = srd5::check_way(&way) {
+                    return void(self, world, format!("裁定不合规矩：{e}"));
+                }
+                let Some(dc) = ruling.dc.filter(|dc| RULING_DCS.contains(dc)) else {
+                    return void(
+                        self,
+                        world,
+                        "裁定不合规矩：难度只能是 5、10、15、20、25".into(),
+                    );
+                };
+                let Some(rules) = &mut self.rules else {
+                    return Err(bad("这个故事没有开规则"));
+                };
+                // 骰子记录里只留开头一截：想做的事可以写得很长
+                let (short, cut) = clip(&ask.text, ASK_TITLE_CHARS);
+                let what = format!("{short}{}", if cut { "…" } else { "" });
+                let roll = rules.improvise(seat, &what, &way, dc, ruling.edge, now);
+                let thrown = match ruling.edge {
+                    Some(Edge::Advantage) => {
+                        format!(
+                            "有优势，掷两次 d20 得 {} 和 {}，取高的",
+                            roll.dice[0], roll.dice[1]
+                        )
+                    }
+                    Some(Edge::Disadvantage) => {
+                        format!(
+                            "有劣势，掷两次 d20 得 {} 和 {}，取低的",
+                            roll.dice[0], roll.dice[1]
+                        )
+                    }
+                    None => format!("掷 d20 得 {}", roll.dice[0]),
+                };
+                format!(
+                    "用{}，难度 {dc}{note}，{thrown}，{:+} 共 {}：{}",
+                    roll.way,
+                    roll.modifier,
+                    roll.total,
+                    if roll.success == Some(true) {
+                        "成功"
+                    } else {
+                        "失败"
+                    }
+                )
+            }
+        };
+        let line = format!(
+            "{}临场：{} 想做一件事——{}。主持人裁定：{outcome}",
+            self.tag(),
+            self.label(seat),
+            ask.text
+        );
+        self.tell(world, &self.everyone(), &line);
+        world.log(EventInfo::default(), line.clone());
+        self.call(world, seat, &line);
+        Ok(outcome)
     }
 
     // ---------- 节拍和戏 ----------
@@ -1941,7 +2121,39 @@ impl Rules for Storyline {
         if !self.ended {
             self.watch(world);
             self.rest(world);
+            self.expire_asks(world);
         }
+    }
+
+    fn rulings(&self, world: &World) -> Vec<RulingRequest> {
+        let Some(rules) = &self.rules else {
+            return Vec::new();
+        };
+        rules
+            .asks
+            .iter()
+            .filter(|a| self.here(world, a.seat))
+            .map(|a| RulingRequest {
+                id: a.id.clone(),
+                actor: self.seats[a.seat].id.clone(),
+                seat: a.seat as u32 + 1,
+                name: self.seats[a.seat].name.clone(),
+                role: self.script.cast[a.seat].role.trim().to_string(),
+                sheet: rules.sheet_line(a.seat),
+                place: world
+                    .actor(&self.seats[a.seat].id)
+                    .map(|actor| world.topo.locale_name(&actor.locus.locale))
+                    .unwrap_or_default(),
+                text: a.text.clone(),
+            })
+            .collect()
+    }
+
+    fn rule(&mut self, world: &mut World, id: &str, ruling: Option<&Ruling>) -> Result<String> {
+        if self.ended {
+            return Err(bad("故事已经收场了"));
+        }
+        self.settle_ask(world, id, ruling)
     }
 
     fn view(&self, world: &World) -> GameModeView {
@@ -2072,7 +2284,9 @@ impl Rules for Storyline {
             (Some(f), Some(me)) => {
                 let mut lines = f.brief(me);
                 lines.push(match f.up() {
-                    Some(k) if k == me => "轮到你出手。".to_string(),
+                    Some(k) if k == me => "轮到你出手。要先走到隔壁那块再出手（比如走过去治人、走过去打），\
+                                            就在同一个动作的 with 里填 move；dash 会把整个回合用在走路上。"
+                        .to_string(),
                     Some(k) => format!("现在轮到 {}，轮到你时会叫你。", f.fighters[k].name),
                     None => String::new(),
                 });
@@ -2113,6 +2327,9 @@ impl Rules for Storyline {
                 }
             } else if let Some(rules) = self.rules.as_ref().filter(|_| fight.is_none()) {
                 actions.push("duel".into());
+                if self.scene.is_none() && !rules.asks.iter().any(|a| a.seat == i) {
+                    actions.push("attempt".into());
+                }
                 if !rules.spells(i).is_empty() {
                     actions.push("cast".into());
                 }
@@ -2183,7 +2400,9 @@ dash 冲刺（with 里填 move：要到的区域）、help 帮同伴（target �
 cast 施法（with 里填 spell：法术的编号，要用高环的法术位再填 slot；target 填对象的编号，罩一块区域的法术指那块里的一个对手）、\
 second_wind 回气（战士）；别的动作要先走一步就在 with 里填 move。近身要和对手在同一块区域；生命归零会倒下昏迷，可能死去。\
 不在打的时候：cast 可以施治疗的法术（对象要在你跟前）；duel 和跟前的一个人动手（target 填座号），按同样的规矩打到一方倒下为止。\
-在床上睡够一觉，生命和法术位回满。"
+在床上睡够一觉，生命和法术位回满。\
+attempt 做一件上面没列出来、成不成说不准的事（撬锁、翻墙、哄人、找东西……）：text 里写清楚要做什么、怎么做，\
+主持人裁定要不要掷骰、用哪项属性和技能、多难，骰子替你掷，结果出来会告诉你；一次只能有一件在等，一个小时最多三件。"
             )
         } else {
             base.to_string()
@@ -2231,10 +2450,11 @@ second_wind 回气（战士）；别的动作要先走一步就在 with 里填 m
             "help" if self.rules.is_some() => self.help(world, i, action),
             "duel" if self.rules.is_some() => self.begin_duel(world, i, action),
             "cast" if self.rules.is_some() => self.cast_outside(world, i, action),
+            "attempt" if self.rules.is_some() => self.improvise(world, i, action),
             other => Err(bad(format!(
                 "故事里没有「{other}」这个动作：能交的是 speak、pass、declare{}",
                 if self.rules.is_some() {
-                    "、check、help、cast、duel"
+                    "、check、help、cast、duel、attempt"
                 } else {
                     ""
                 }

@@ -190,6 +190,67 @@ fn proficiency(level: u32) -> i32 {
     2 + (level.saturating_sub(1) / 4) as i32
 }
 
+/// 规则里有的东西的编号和名字：故事编辑器和主持人的提示词照它写，模型只能从里面选。
+#[derive(Debug, Clone, Default)]
+pub struct RulesetWords {
+    /// 技能：编号、名字、用的属性
+    pub skills: Vec<(String, String, String)>,
+    /// 职业：编号、名字、能选的技能、选几项、能不能施法
+    pub classes: Vec<(String, String, Vec<String>, usize, bool)>,
+    pub weapons: Vec<(String, String)>,
+    pub armor: Vec<(String, String)>,
+    pub creatures: Vec<(String, String)>,
+    /// 法术：编号、名字、环数、哪些职业能用
+    pub spells: Vec<(String, String, u32, Vec<String>)>,
+}
+
+pub fn words() -> RulesetWords {
+    let gear = combat::gear();
+    let pair = |id: &str, name: &str| (id.to_string(), name.to_string());
+    RulesetWords {
+        skills: SKILLS
+            .iter()
+            .map(|(id, ability)| {
+                (
+                    id.to_string(),
+                    skill_name(id).to_string(),
+                    ability.to_string(),
+                )
+            })
+            .collect(),
+        classes: data()
+            .classes
+            .iter()
+            .map(|c| {
+                (
+                    c.id.clone(),
+                    c.name.clone(),
+                    c.skills.clone(),
+                    c.skill_count,
+                    magic().casting.contains_key(&c.id),
+                )
+            })
+            .collect(),
+        weapons: gear.weapons.iter().map(|w| pair(&w.id, &w.name)).collect(),
+        armor: gear.armor.iter().map(|a| pair(&a.id, &a.name)).collect(),
+        creatures: gear
+            .creatures
+            .iter()
+            .map(|c| pair(&c.id, &c.name))
+            .collect(),
+        spells: magic()
+            .spells
+            .iter()
+            .map(|s| (s.id.clone(), s.name.clone(), s.level, s.classes.clone()))
+            .collect(),
+    }
+}
+
+/// 一张角色卡合不合规（故事编辑器理草稿时一张一张查）
+pub fn check_sheet(sheet: &Srd5Sheet) -> Result<()> {
+    Srd5::open(std::slice::from_ref(sheet), 1, 0).map(|_| ())
+}
+
 /// 一种试法合不合规：属性要认得，带了技能的技能也要认得
 pub(super) fn check_way(way: &CheckWay) -> Result<()> {
     if !ABILITIES.contains(&way.ability.as_str()) {
@@ -263,6 +324,23 @@ pub struct Srd5 {
     /// 每个座位睡下的时刻；醒着时没有
     #[serde(default)]
     pub asleep_since: Vec<Option<f64>>,
+    /// 等主持人裁定的事
+    #[serde(default)]
+    pub asks: Vec<Ask>,
+    /// 最近谁在什么时候问过主持人（座位下标、世界分钟）：限每小时几次
+    #[serde(default)]
+    pub asked: Vec<(usize, f64)>,
+    #[serde(default)]
+    pub ask_seq: u32,
+}
+
+/// 一件等主持人裁定的事
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Ask {
+    pub id: String,
+    pub seat: usize,
+    pub text: String,
+    pub at: f64,
 }
 
 impl Srd5 {
@@ -378,6 +456,9 @@ impl Srd5 {
             xp: vec![0; cast],
             winded: vec![false; cast],
             asleep_since: vec![None; cast],
+            asks: Vec::new(),
+            asked: Vec::new(),
+            ask_seq: 0,
         };
         rules.hp = (0..cast).map(|i| rules.hit_points(i) as i32).collect();
         rules.slots = sheets
@@ -917,6 +998,37 @@ impl Srd5 {
         if success {
             self.passed.entry(check.id.clone()).or_insert(seat);
         }
+        self.record(roll.clone());
+        roll
+    }
+
+    /// 主持人裁定要掷的一次检定：不是剧本里的检定，不记谁试过，只掷、只记这一掷。
+    pub(super) fn improvise(
+        &mut self,
+        seat: usize,
+        what: &str,
+        way: &CheckWay,
+        dc: u32,
+        edge: Option<Edge>,
+        at: f64,
+    ) -> DiceRoll {
+        let (dice, kept) = self.d20(edge);
+        let bonus = self.bonus(seat, way);
+        let total = kept as i32 + bonus;
+        let roll = DiceRoll {
+            at,
+            seat: seat as u32 + 1,
+            what: what.to_string(),
+            way: way_name(way),
+            formula: format!("d20{bonus:+}"),
+            dice,
+            modifier: bonus,
+            total,
+            dc: Some(dc),
+            success: Some(total >= dc as i32),
+            edge,
+            versus: None,
+        };
         self.record(roll.clone());
         roll
     }
