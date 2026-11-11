@@ -48,6 +48,7 @@ fn two_readers_choose_one_note_or_no_note_and_sources_are_checked() {
             day: 0,
             event_ids: vec![id],
             reason: "本人选择整理".into(),
+            dream: vec![],
         });
         let notes = if actor == "r1" {
             json!([{"path":"lessons/wood.md","title":"打磨","text":"这本书建议顺着木纹打磨，尚未实践。","event_ids":[id],"status":"candidate","reading_quotes":[{"event_id":id,"text":"顺着木纹打磨。"}]}])

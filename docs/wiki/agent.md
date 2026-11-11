@@ -24,23 +24,52 @@
 | `memory.rs`, `memory/index.rs` | Memory records and the query index |
 | `view.rs`, `view/memory_page*` | Projections for the observer UI |
 
-## Memory today
+## Memory
 
 Two layers that are easy to confuse:
 
-**`MemoryStore`** — `Vec<MemoryRecord>` inside the saved session. This is the durable data.
+**`MemoryStore`** — `Vec<MemoryRecord>` inside the saved session. This is the durable data. (On disk the host splits the records into `towns/<id>/residents/<resident>/.state/records/Dnnn.jsonl`; the rest of the store stays in `world.json`.)
 
 | Kind | Created | Key | Notes |
 | --- | --- | --- | --- |
 | `Episode` | `ingest`: one per journal event | `event:{id}` | Reported speech of others gets `Reported`, confidence 0.5; identical ones merge |
 | `Recognition` | `consolidate`: last result of doing X | `last_result:{prop\|verb}:{verb}` | Replaces the previous one (`Superseded`) |
 | `Experience` | `consolidate`: a failure | `failure:{obj}:{verb}:{reason}` | Starts `Candidate` 0.5; a repeat makes it `Active` 0.8; a later success unprotects it |
+| `Insight` | a dream (below) | `insight:{n}` | `Inferred`, confidence 0.7; cites the memories it came from |
 
 Nothing is ever deleted; records only become `Superseded`.
 
-**`MemoryIndex`** — an *in-memory* SQLite database (`Connection::open_in_memory()`), rebuilt from the store after each start. Tables `memories` and `objects`. `recall` filters by substring (`instr(lower(text), lower(?))`), object, kind and time, and orders by `protected, content, confidence, at` — there is no word index, no relevance score and no decay.
+**`MemoryIndex`** — an *in-memory* SQLite database, rebuilt from the store after each start and kept in step by `sync`. The save stays the source of truth so rollback and checkpointing remain atomic; SQLite is the query engine.
 
-**Into the prompt** (`runtime/relevance.rs`): the focus is the set of objects in view (event objects, people here, visible props, current locale, goal locales). For each focus object the two top memories are recalled, already-shown and not-yet-folded ones dropped, six kept. Notebook pages are scored by how many entity names they share with the context (+1 for same locale); the top three are attached.
+- Tables `memories` and `objects` answer lookups by object, kind and time.
+- **`memory_words`** is an FTS5 table for word search. Chinese has no spaces, so text is tokenised by us (`words`): a run of CJK characters becomes its single characters plus every adjacent pair (灯塔要卖 → 灯 塔 要 卖 灯塔 塔要 要卖); Latin and digits become lower-cased words. Queries are tokenised the same way (pairs only for runs of two or more), OR-ed, and ranked with BM25. Two-character words — most names and places — therefore match, which SQLite's own `trigram` tokenizer cannot do.
+
+### One score
+
+`search(actor, store, text, now, limit)` ranks by
+
+`0.5 × relevance + 0.2 × recency + 0.3 × importance`
+
+| Part | Meaning |
+| --- | --- |
+| relevance | BM25, normalised to 0–1 within the result set |
+| recency | halves every two game days |
+| importance | `MemoryRecord::importance()`: insight 0.9, experience 0.7, recognition 0.5, notices / speech / readings 0.5, other episodes 0.35 or 0.2; +0.2 if protected; scaled by confidence |
+
+Used in two places:
+
+- **The `recall` tool** — with a `text` query it searches by words and returns by score; if no word matches it falls back to the old substring match. The tool's schema is unchanged.
+- **Prompt assembly** (`runtime/relevance.rs`) — per-object lookups come first as before; remaining slots (six in total) are filled by a word search for the names of people, places and things in view plus open goal titles, keeping only results with relevance ≥ 0.35.
+
+### Dreaming (`memory/dream.rs`)
+
+The runtime tells the store every poll whether the resident is asleep. On waking after at least two game hours:
+
+1. **`settle` — no model needed.** Routine episodes with no content, older than three days and already reflected, become `Superseded`.
+2. **A dream is due** if at least six memories are new since the last dream. It is planned like a reflection round (same request kind, budget, retries, and the rule that unacknowledged notices come first) but with its own system prompt (`prompts/resident_dream.txt`), its own material — the sixteen most important new memories, with ids, plus the text of anything read — and a single tool, `dream`.
+3. The model returns up to four **insights** (each citing memory ids from the material), memories to **let go**, and a few sentences of **dream**. Insights become `Insight` records carrying the evidence's events and objects, so both word and object lookups find them. Let-go applies only to unprotected episodes from the material. The dream text is kept per day in `MemoryStore.dream.dreams` (last 30).
+
+One dream per sleep. If the model does not deliver, that sleep's dream is dropped without counting as a reflection failure. A store that has never slept serialises exactly as before.
 
 ## Notebook and reflection
 
@@ -48,7 +77,7 @@ Reflection is a separate request with its own tools (`reflect`, `read_content`, 
 
 ## Sleep
 
-A resident sleeps by doing a timed prop action whose completion is `Sleep`; `World::awake(id)` is false meanwhile, and the runtime plans no turns. There is no sleep-time processing yet.
+A resident sleeps by doing a timed prop action whose completion is `Sleep`; `World::awake(id)` is false meanwhile, and the runtime plans no turns. Waking triggers the dream described above.
 
 ## Model calls
 

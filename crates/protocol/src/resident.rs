@@ -161,6 +161,8 @@ pub enum MemoryKind {
     Episode,
     Recognition,
     Experience,
+    /// 睡觉时从这一天的经历里提炼出来的认识（做梦，见 agent 的 dream.rs）
+    Insight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

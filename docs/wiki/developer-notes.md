@@ -63,6 +63,8 @@ Useful switches: `TOWN_MOCK_LLM=1` (honoured by `pnpm dev` / `pnpm preview` and 
 
 - **`protect-crates` CI check.** Inherited from upstream: it fails any pull request that touches `crates/`. In this fork feature work has to touch `crates/`, so that check is expected to be red on such PRs; `test` and `format-check` are the real gates.
 - **The agent's SQLite is an index, not a store.** `crates/agent/src/memory/index.rs` opens an in-memory database rebuilt from the saved `MemoryStore`. Durable state is the serialized session inside the town's save.
+- **Model calls are slow.** A real model takes about a minute to write a story draft (65–70 s measured with DeepSeek). Any path that waits on one needs a timeout of minutes, not the 100 s worker default.
+- **Sandbox TLS.** In a sandbox that re-terminates TLS with its own CA, the game's HTTP client (`ureq` with bundled roots) refuses the model endpoint while `curl` works. That is the sandbox, not the product; relay through a local plain-HTTP forwarder for testing and leave the client alone.
 - **`Session::Sleep` is the agent's wait timer**, not the resident sleeping. A resident is asleep when `World::awake(id)` is false.
 - **`protocol.ts` is hand-written.** It mirrors `crates/protocol`; the wire test compiles Rust-generated samples against it. A new message needs: the Rust type, a sample in `crates/protocol/tests/wire/samples.rs`, the entry in the `variants!` list, and the TS type.
 - **The wire bans geometry.** Samples may not contain coordinates or pixel sizes outside a short exempt list; a game-mode view carries locale ids, not positions.

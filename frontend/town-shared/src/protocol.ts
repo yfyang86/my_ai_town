@@ -198,7 +198,7 @@ export type AgentState =
   | 'no_model'
 export type GoalStatus = 'active' | 'paused' | 'completed' | 'abandoned' | 'failed'
 export type NoteStatus = 'candidate' | 'supported' | 'rejected'
-export type MemoryKind = 'episode' | 'recognition' | 'experience'
+export type MemoryKind = 'episode' | 'recognition' | 'experience' | 'insight'
 export type MemoryStatus = 'active' | 'candidate' | 'superseded'
 export type EvidenceSource = 'observed' | 'reported' | 'inferred'
 export type InteractionStatus =
