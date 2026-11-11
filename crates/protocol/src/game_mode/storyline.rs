@@ -61,6 +61,9 @@ pub struct StorylineBeat {
     /// 这个节拍开出来的检定（要开着规则套件才有用；没开时不出现）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<super::StorylineCheck>,
+    /// 这个节拍打起来的一场遭遇战（要开着规则套件；没开时不打）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encounter: Option<super::StorylineEncounter>,
 }
 
 /// 一场戏：这几个座号按次序一次一人说话，每人有期限和字数上限
@@ -104,6 +107,8 @@ pub enum StorylineWhen {
     },
     /// 有人通过了这项检定（要开着规则套件）
     Check { check: String },
+    /// 这场遭遇战打赢了（要开着规则套件）
+    Encounter { encounter: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -228,4 +233,7 @@ pub struct StorylineContext {
     /// 开着规则套件时：此刻自己能试的检定
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<String>,
+    /// 正在打的遭遇战：第几轮、各块区域里是谁、自己的状况和能做的事
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fight: Vec<String>,
 }

@@ -27,6 +27,7 @@ fn script() -> StorylineScript {
             brief: None,
             scene: None,
             checks: vec![],
+            encounter: None,
         }],
         milestones: vec![],
         ends_day: 1,
@@ -52,6 +53,9 @@ fn mode_action_takes_named_parameters_only_when_the_open_mode_asks_for_them() {
         },
         skills: vec!["athletics".into()],
         expertise: vec![],
+        weapon: None,
+        armor: None,
+        shield: false,
     };
     let mode_action = |ruleset: Option<RulesetChoice>| {
         let mut w = world();

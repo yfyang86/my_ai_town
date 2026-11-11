@@ -15,11 +15,18 @@ What is taken from it in this repository
 - Hit points at 1st level and at higher levels (fixed average).
 - Saving throws; advantage and disadvantage; contests; passive checks; the Help action;
   the two skill proficiencies granted by a background.
+- Combat: initiative, the actions Attack, Dash, Disengage, Dodge and Help, opportunity attacks,
+  attack rolls against Armor Class, critical hits, dropping to 0 hit points and death saving throws.
+- Ten creatures (bandit, guard, thug, cultist, goblin, skeleton, zombie, wolf, giant rat, mastiff):
+  Armor Class, hit points, Dexterity and one attack each.
+- Nine weapons and four armours with their damage dice and Armor Class, and the shield.
 
 Where it is used
 - crates/protocol/src/game_mode/ruleset.rs
 - crates/kernel/src/game_mode/srd5.rs
 - data/rules/5e/classes.json
+- data/rules/5e/creatures.json
+- crates/kernel/src/game_mode/combat.rs
 - frontend/town-shared/src/prefabs/lighthouse.ts (character sheets and checks for the optional rules switch)
 
 Only material in SRD 5.1 may be added. Content that is not in the SRD (settings, named characters, and creatures
