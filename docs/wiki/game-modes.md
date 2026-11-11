@@ -42,7 +42,9 @@ What a mode does to the world today: write journal facts, send notices, interrup
 | `GameModeContext` | What one resident's model sees. Untagged; keyed by `key()` |
 | `GameModeAction` | `{action, target?, text?, reason?}` — shared by all modes |
 
-## The three modes
+## The modes
+
+`storyline` (故事模式) is described separately below; the three hand-coded modes compare like this:
 
 | | `tide` 大逃杀 | `werewolf` 狼人杀 | `swordholder` 执剑人之夜 |
 | --- | --- | --- | --- |
@@ -81,6 +83,25 @@ The constants above are defaults. `GameModeChoice::Swordholder.rules` (`Swordhol
 `Timetable::resolve` fills defaults and validates once at open (ranges, bell ≤ meet < handover, the free day must fit before the bell); a bad value is refused and the previous mode stays. The resolved `Timetable` is saved with the game and omitted from the save when it equals the defaults, so an unedited game is byte-identical to one from before rules existed. Announcements keep their wording; only clock times, minute counts and the clauses for switched-off phases change.
 
 The cast lives in `frontend/town-shared/src/prefabs/swordholder.ts` and can be edited per game in the setup screen.
+
+### Storyline in detail
+
+The one mode whose content is entirely data. `GameModeChoice::Storyline { seed, script }` carries a `StorylineScript`; the kernel validates it at open and keeps it in the save.
+
+| Part | What it does |
+| --- | --- |
+| `cast[]` | By seat (move-in order). `role` is public; `goal` and `secret` reach only that seat's model |
+| `beats[]` | At `day` / `minute`: everyone hears `announce`; seats in `who` are woken and also hear `brief`; an optional `scene` has `speakers` talk in turn, each with a deadline and a length cap |
+| `milestones[]` | `beat` — a beat has run · `gather` — enough of the named seats are at a place at once (checked every 5 minutes) · `declare` — a named seat reports it with `mode_action declare` and a sentence of evidence. `secret` hides it from everyone who cannot declare it |
+| `ends_day` / `ends_minute`, `epilogue` | The close: reached and missed milestones are announced |
+
+It is deliberately soft. Nobody is moved; a beat says what happens and a resident decides what to do about it. A scene only records whether the speaker was at the place. The next beat waits while a scene is still running. Places are matched by substring against locale names; a place the map lacks is treated as description only.
+
+`mode_action`: `speak` / `pass` on your scene turn, `declare` with `target` = milestone id.
+
+Limits (refused at open with a reason): 2–12 seats, 1–24 beats in time order, ≤ 12 milestones, ids unique and resolvable, 14 days at most, text lengths capped.
+
+The first script is hand-written: `frontend/town-shared/src/prefabs/lighthouse.ts` (灯塔之约).
 
 ## Adding a mode — checklist
 

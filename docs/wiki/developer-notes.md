@@ -4,7 +4,7 @@
 
 An LLM-driven town simulation. A deterministic Rust **kernel** owns the world (map, time, bodies, props, weather). Each resident is an **agent**: the runtime turns what the resident can perceive into a prompt, the model answers with tool calls, the kernel checks and executes them. A browser client draws the town in HD-2D (three.js) and lets the player watch, configure, or walk around as an avatar.
 
-On top of the free-running town sit **game modes** — self-contained rule sets with their own timetable and ending: 大逃杀 (`tide`), 狼人杀 (`werewolf`), 执剑人之夜 (`swordholder`). A **prefab** is a ready-made town that opens one of them.
+On top of the free-running town sit **game modes** — self-contained rule sets with their own timetable and ending: 大逃杀 (`tide`), 狼人杀 (`werewolf`), 执剑人之夜 (`swordholder`), and the data-driven 故事模式 (`storyline`). A **prefab** is a ready-made town that opens one of them.
 
 ## Layout
 
@@ -71,4 +71,6 @@ Useful switches: `TOWN_MOCK_LLM=1` runs residents on a scripted fake model; `AI_
 - **GitHub Actions do not run on this fork.** PRs show no checks; the local gate above is the gate. Run it before every merge.
 - **`pnpm test` as root.** `scripts/tests/readonly.test.mjs` asserts a `chmod 555` tree refuses writes; root ignores file modes, so it fails in root containers and nowhere else.
 - **The launcher strip clips overlays.** The town list scrolls horizontally (`overflow-x: auto`), which also clips vertically — popovers anchored in it are cut off. Put controls inline.
+- **Residents without a model never think, and then the clock does not run.** A fresh data root has no provider; even with `TOWN_MOCK_LLM=1` you must save one through `/api/towns/models` before starting a game, or `nobody_can_think` keeps the world paused.
+- **`World::step` returns the events it produced**; `take_events` only has what was logged outside a step.
 - **Only one town runs at a time** (`MAX_RUNNING = 1`); opening another closes the least recently used.

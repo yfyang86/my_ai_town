@@ -131,6 +131,10 @@ impl Runtime {
                 day_hours,
                 rules,
             },
+            GameModeChoice::Storyline { seed, script } => GameModeChoice::Storyline {
+                seed: roll(seed),
+                script,
+            },
         });
         let result = self
             .transact(|rt| {
@@ -158,6 +162,11 @@ impl Runtime {
                     Some(GameModeChoice::Swordholder { .. }) => {
                         "执剑人之夜已打开：天亮开局，钟点和环节照这一局改过的规则走".into()
                     }
+                    Some(GameModeChoice::Storyline { script, .. }) => format!(
+                        "故事「{}」已打开：{} 个节拍到点发生，角色自己决定怎么做",
+                        script.title.trim(),
+                        script.beats.len()
+                    ),
                     None => "玩法已关掉，世界恢复原样".into(),
                 }),
             })
