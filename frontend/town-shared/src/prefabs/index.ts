@@ -7,6 +7,7 @@ import type {
   VillagerLook,
 } from '../protocol'
 import { battleRoyale } from './battleRoyale'
+import { lighthouse } from './lighthouse'
 import { swordholder } from './swordholder'
 import { werewolf } from './werewolf'
 
@@ -129,7 +130,7 @@ export function seedOption(label: string, randomHint: string): PrefabOption {
   }
 }
 
-export const PREFABS: Prefab[] = [battleRoyale, werewolf, swordholder]
+export const PREFABS: Prefab[] = [battleRoyale, werewolf, swordholder, lighthouse]
 
 export function prefabOf(id: string | null | undefined): Prefab | null {
   return PREFABS.find((p) => p.id === id) ?? null
