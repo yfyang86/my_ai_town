@@ -62,6 +62,8 @@ export function dataRoot() {
  * 打开也还在。逐步设置的小镇没有这个文件。从预制小镇开的一局另记 prefab（预制小镇的编号，见
  * frontend/town-shared/src/prefabs），进镇时按它出开局设置。手机上的管理服务（crates/manager/src/storage.rs）规则相同。
  */
+/** 建镇说明里的故事草稿最多这么大（JSON 字节数），同 crates/manager/src/storage.rs */
+const SCENARIO_MAX_BYTES = 64 * 1024
 export function townCreation(value) {
   if (value === undefined || value === null) return null
   const invalid = () => Error('建镇说明无效')
@@ -76,6 +78,15 @@ export function townCreation(value) {
   const prefab = value.prefab ?? null
   if (prefab !== null && (typeof prefab !== 'string' || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(prefab)))
     throw invalid()
+  // 故事编辑器写的故事草稿：原样存着，进镇时页面按它出开局设置；只限大小，内容由页面和内核查
+  const scenario = value.scenario ?? null
+  if (
+    scenario !== null &&
+    (typeof scenario !== 'object' ||
+      Array.isArray(scenario) ||
+      Buffer.byteLength(JSON.stringify(scenario)) > SCENARIO_MAX_BYTES)
+  )
+    throw invalid()
   return {
     description: text(value.description, 2000),
     worldview: text(value.worldview, 6000),
@@ -85,6 +96,7 @@ export function townCreation(value) {
       return line
     }),
     ...(prefab ? { prefab } : {}),
+    ...(scenario ? { scenario } : {}),
   }
 }
 /** 选择小镇页不显示的剧本编号：小写字母、数字和连字符，最多 64 个 */

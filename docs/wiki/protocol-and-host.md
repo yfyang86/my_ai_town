@@ -30,6 +30,7 @@ Requests carry a `request_id`; the receipt echoes it to the requester, and state
 | `agent_worker.rs`, `llm.rs` | Model transport, provider targets, built-in model routing |
 | `config.rs`, `application.rs`, `models.rs` | Providers, credentials, model settings |
 | `recording.rs`, `recording_commands.rs` | Broadcast recorder |
+| `story.rs` | Story editor step shared by both managers: outline → draft via the model, or tidy an edited draft |
 | `maps.rs` | Map validation |
 | `bin/town-map.rs` | One-shot worker used by the Node manager |
 

@@ -21,6 +21,7 @@ POST bodies are JSON with header `x-town-client: 1`, at most 1 MB. Errors are `{
 | GET/POST `/prefabs` | Which scripted towns the selection page lists: `{hidden: [prefab id]}` | ✓ | ✓ |
 | GET `/options` | Creator options, model availability | full | `{generation: 'client', model}` |
 | POST `/parse` | One sentence → build plan (model call) | via `town-map parse` | in-process |
+| POST `/story` | Story editor: `{outline, cast, days}` → model writes a story draft; `{draft}` → tidy and validate an edited draft (no model call) | via `town-map story` | in-process |
 | POST `/preview` | Run generator, return draft | ✓ | refuses (page generates) |
 | POST `/drafts` | Validate a page-generated map, return draft | — | ✓ |
 | POST `/save` | Draft → town | ✓ | ✓ |
@@ -43,12 +44,14 @@ On desktop the generator (`scripts/mapgen`) runs in the manager. In the apps it 
   towns/<id>/
     map.json                    sealed map; content_hash identifies the save
     receipt.json                how it was created
-    creation.json               {description, worldview, residents[], prefab?}
+    creation.json               {description, worldview, residents[], prefab?, scenario?}
     world.json                  the save: world + resident sessions
     prop-layout.json
     recordings/                 broadcast reels
     logs/, host.log, host-ready.json
 ```
+
+`creation.scenario` is the story draft a town was built from (≤ 64 KB, stored as-is); the game page turns it into the setup screen. Both managers accept and cap it identically.
 
 Towns are created atomically (`.saving-<uuid>` then rename). Writes per town are serialized.
 

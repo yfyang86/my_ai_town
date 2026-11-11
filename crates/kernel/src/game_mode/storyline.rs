@@ -95,7 +95,7 @@ fn seats_in(what: &str, seats: &[u32], cast: usize) -> Result<()> {
 }
 
 /// 剧本查一遍：数量、字数、先后、互相指的东西都对得上才开局。
-fn check(script: &StorylineScript) -> Result<()> {
+pub(super) fn check(script: &StorylineScript) -> Result<()> {
     text("标题", &script.title, TITLE_CHARS)?;
     text("前情", &script.premise, PREMISE_CHARS)?;
     let cast = script.cast.len();

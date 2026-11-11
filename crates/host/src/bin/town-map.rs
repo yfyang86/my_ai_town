@@ -28,6 +28,11 @@ fn run() -> Result<Value, HostError> {
             Ok(json!({"provider":provider,"model":target.model,"available":true}))
         }
         "parse" => plan(&app, &input),
+        // 故事编辑器：提纲写成草稿，或把改过的草稿理一遍；请求里 mock 为 true 时不调模型（测试用）
+        "story" => {
+            let body = request(&input)?;
+            host::story::draft(&app, &body, body["mock"] == true)
+        }
         "models" => host::models::read(&app),
         "save-models" => host::models::write(&app, &request(&input)?),
         "test-model" => host::models::check(&app, &request(&input)?),

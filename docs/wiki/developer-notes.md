@@ -47,7 +47,7 @@ corepack pnpm format:check
 
 Order matters: `pnpm test` reads protocol samples that `cargo test` writes, spawns `target/debug/host` and `town-map`, and reads `frontend/town-2d/dist`.
 
-Useful switches: `TOWN_MOCK_LLM=1` runs residents on a scripted fake model; `AI_TOWN_HOME` moves the user data root; `TOWN_MANAGER_PORT` moves the manager.
+Useful switches: `TOWN_MOCK_LLM=1` (honoured by `pnpm dev` / `pnpm preview` and the standalone manager) runs residents and the story editor on a scripted fake model; `AI_TOWN_HOME` moves the user data root; `TOWN_MANAGER_PORT` moves the manager.
 
 ## House rules (from `AGENTS.md`, enforced in review)
 
@@ -73,4 +73,5 @@ Useful switches: `TOWN_MOCK_LLM=1` runs residents on a scripted fake model; `AI_
 - **The launcher strip clips overlays.** The town list scrolls horizontally (`overflow-x: auto`), which also clips vertically — popovers anchored in it are cut off. Put controls inline.
 - **Residents without a model never think, and then the clock does not run.** A fresh data root has no provider; even with `TOWN_MOCK_LLM=1` you must save one through `/api/towns/models` before starting a game, or `nobody_can_think` keeps the world paused.
 - **`World::step` returns the events it produced**; `take_events` only has what was logged outside a step.
+- **Never trust model JSON.** Model replies arrive wrapped in prose, with wrong ids, out-of-range numbers and dangling references. `agent::story::tidy` is the pattern: normalise everything, then validate with the same function the consumer uses (`kernel::game_mode::check_storyline`), and make the normaliser idempotent so edited data can take the same path.
 - **Only one town runs at a time** (`MAX_RUNNING = 1`); opening another closes the least recently used.

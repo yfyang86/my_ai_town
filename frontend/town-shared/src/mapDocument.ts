@@ -1,3 +1,4 @@
+import type { StoryDraft } from './prefabs/scenario'
 import type { Spatial, AssetManifest } from './spatial'
 import type { Appearance } from './props/types'
 import type { VillagerLook } from './protocol'
@@ -172,6 +173,8 @@ export interface TownCreation {
   residents: string[]
   /** 从预制小镇开的一局：预制小镇的编号（prefabs/），进镇时出开局设置 */
   prefab?: string
+  /** 故事编辑器写的故事草稿（prefabs/scenario.ts）：进镇时按它出开局设置 */
+  scenario?: StoryDraft
 }
 
 export interface MapEntry {

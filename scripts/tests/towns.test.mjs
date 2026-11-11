@@ -78,6 +78,17 @@ test('preview/save/open/reopen/reset/isolation work with actual hosts and persis
     assert.equal(m.hosts.running.size, 0)
     const draft = await api('/preview', { spec })
     assert.equal(m.hosts.running.size, 0)
+    // 故事编辑器：提纲交给模型（这里是假模型）写成故事草稿；页面改过的草稿送回来再理一遍，越界的收进范围
+    const story = await api('/story', { outline: '镇上丢了一口钟', cast: 3, days: 1 })
+    assert.equal(story.draft.cast.length, 3)
+    assert.equal(story.draft.places[0].kind, 'townhall')
+    const edited = structuredClone(story.draft)
+    edited.beats[1].minute = 5000
+    edited.beats[1].who = [1, 9]
+    const tidied = (await api('/story', { draft: edited })).draft
+    assert.deepEqual([tidied.beats[1].minute, tidied.beats[1].who], [1439, [1]])
+    await assert.rejects(api('/story', { outline: '', cast: 3, days: 1 }), /提纲/)
+    await assert.rejects(api('/story', { draft: { title: '空的' } }), /角色/)
     // 预览后改的名字随保存提交：只换名字、重算摘要，布局就是预览的那一版，开镇时照样通过校验
     const body = {
       draft_id: draft.id,
@@ -89,6 +100,7 @@ test('preview/save/open/reopen/reset/isolation work with actual hosts and persis
         worldview: '这里的人想靠海吃饭。',
         residents: ['在村口酒馆当老板娘的寡妇'],
         prefab: 'battle-royale',
+        scenario: tidied,
       },
     }
     await assert.rejects(api('/save', { ...body, expected_version: 'wrong' }), /版本/)
@@ -108,6 +120,16 @@ test('preview/save/open/reopen/reset/isolation work with actual hosts and persis
     assert.deepEqual(listed.creation.residents, ['在村口酒馆当老板娘的寡妇'])
     // 从预制小镇开的一局记着是哪个预制小镇，进镇时据此出开局设置
     assert.equal(listed.creation.prefab, 'battle-royale')
+    // 故事草稿跟小镇存在一起，进镇时据此出开局设置；太大的不收
+    assert.deepEqual(listed.creation.scenario, tidied)
+    await assert.rejects(
+      api('/save', {
+        ...body,
+        request_id: 'big-scenario',
+        creation: { scenario: { blob: 'x'.repeat(70000) } },
+      }),
+      /建镇说明无效/
+    )
     await assert.rejects(
       api('/save', { ...body, request_id: 'bad-prefab', creation: { prefab: '../x' } }),
       /建镇说明无效/
