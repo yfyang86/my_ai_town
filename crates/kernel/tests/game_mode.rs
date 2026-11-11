@@ -1005,6 +1005,7 @@ fn sheet(class: &str, scores: [u32; 6], skills: &[&str]) -> Srd5Sheet {
         weapon: None,
         armor: None,
         shield: false,
+        spells: vec![],
     }
 }
 
@@ -1171,7 +1172,7 @@ fn storyline_with_fifth_edition_rules_resolves_scripted_checks_with_dice() {
     assert!(w.game_mode_tool("r1").unwrap().contains("check"));
     let c = story_context(&w, "r1");
     assert!(c.sheet.as_deref().unwrap().starts_with(
-        "战士 1 级 · 生命 12/12 · 护甲 11（没穿甲）· 拳脚（+5 命中，1d1+3）· 力量 16(+3)"
+        "战士 1 级（经验 0）· 生命 12/12 · 护甲 11（没穿甲）· 拳脚（+5 命中，1d1+3）· 力量 16(+3)"
     ));
     assert!(c.checks.is_empty(), "节拍还没到，没有检定可试");
 
@@ -1680,6 +1681,131 @@ fn fifth_edition_encounters_run_by_initiative_and_can_kill() {
 }
 
 /// 交一项带 target 是文字（里程碑编号）的玩法动作
+/// 开着规则时角色之间动手只有决斗一条路：要在跟前，按先攻轮流打到一方倒下，没人死、没有经验；
+/// 不在打的时候牧师能给跟前的人治伤，耗法术位；在床上睡够一觉法术位回满；达成自己名下的里程碑得经验。
+#[test]
+fn fifth_edition_duels_heal_between_fights_and_recover_with_a_long_rest() {
+    let topo = || {
+        common::topology(&common::two_places_json(|data| {
+            data["props"].as_array_mut().unwrap().push(json!({
+                "id":"cot","name":"行军床","locale":"loc_a",
+                "verbs":[{"verb":"睡觉","duration_minutes":480,
+                  "action":{"id":"sleep","label":"睡觉","duration_minutes":480,"completion":"sleep","rest":true,"during":[],"conditions":[]}}]
+            }));
+        }))
+    };
+    let people = [
+        ("r1", "阿塔", "loc_a"),
+        ("r2", "老镇", "loc_a"),
+        ("r3", "阿渔", "loc_a"),
+        ("r4", "远客", "loc_b"),
+    ];
+    let mut w = common::world_with(topo(), 7.0 * HOUR, &people);
+    // 这一局不看节拍：都排到第二天
+    let mut script = lighthouse_script();
+    for beat in &mut script.beats {
+        beat.day = 2;
+    }
+    script.ends_day = 2;
+    let mut sheets = lighthouse_sheets();
+    sheets[0].weapon = Some("longsword".into());
+    sheets[1].weapon = Some("shortsword".into());
+    sheets[2].spells = vec!["cure_wounds".into(), "bless".into()];
+    sheets[3].spells = vec!["fire_bolt".into(), "magic_missile".into()];
+    w.set_game_mode(Some(&GameModeChoice::Storyline {
+        seed: Some(4),
+        script: Box::new(script),
+        ruleset: Some(RulesetChoice::Srd5 { sheets }),
+    }))
+    .unwrap();
+    let fight = |w: &World| storyline(w).ruleset.and_then(|r| r.fight);
+    let card = |w: &World, id: &str| story_context(w, id).sheet.unwrap();
+    assert!(card(&w, "r3").contains("法术位：1 环 2"));
+    let cleric = story_context(&w, "r3").actions;
+    assert!(cleric.contains(&"duel".to_string()) && cleric.contains(&"cast".to_string()));
+    assert!(!story_context(&w, "r1")
+        .actions
+        .contains(&"cast".to_string()));
+
+    // 不在跟前的人打不着；和自己打不了
+    assert!(fight_act(&mut w, "r1", "duel", Some("4"), None).is_err());
+    assert!(fight_act(&mut w, "r1", "duel", Some("1"), None).is_err());
+    fight_act(&mut w, "r1", "duel", Some("2"), None).unwrap();
+    let f = fight(&w).unwrap();
+    assert_eq!(
+        (f.title.as_str(), f.fighters.len()),
+        ("阿塔 和 老镇 动手", 2)
+    );
+    // 打着的时候不能另起一场
+    assert!(fight_act(&mut w, "r3", "duel", Some("1"), None).is_err());
+    for _ in 0..200 {
+        if fight(&w).is_none_or(|f| f.outcome.is_some()) {
+            break;
+        }
+        let up = ["r1", "r2"].into_iter().find(|id| {
+            story_context(&w, id)
+                .actions
+                .contains(&"attack".to_string())
+        });
+        match up {
+            Some("r1") => fight_act(&mut w, "r1", "attack", Some("2"), None).unwrap(),
+            Some(_) => fight_act(&mut w, "r2", "attack", Some("1"), None).unwrap(),
+            None => {
+                w.step(1.0);
+                continue;
+            }
+        };
+    }
+    assert!(fight(&w).unwrap().outcome.is_some());
+    // 没人死，倒下的缓过来剩 1 点；决斗没有经验
+    let v = storyline(&w);
+    assert!(v.seats.iter().all(|s| !s.gone));
+    let (a, b) = (card(&w, "r1"), card(&w, "r2"));
+    let loser = if a.contains("生命 1/") { "1" } else { "2" };
+    assert!(a.contains("生命 1/") != b.contains("生命 1/"), "{a}\n{b}");
+    assert!(a.contains("经验 0") && b.contains("经验 0"));
+
+    // 牧师给跟前倒下过的人治伤：耗一个法术位；不在跟前的治不了，祝福不是治疗
+    let cast = |w: &mut World, spell: &str, target: &str| {
+        let action = GameModeAction {
+            action: "cast".into(),
+            target: Some(target.into()),
+            text: None,
+            reason: None,
+            with: [("spell".to_string(), spell.to_string())].into(),
+        };
+        w.game_mode_act("r3", &action).map_err(|e| e.to_string())
+    };
+    assert!(cast(&mut w, "cure_wounds", "4").is_err());
+    assert!(cast(&mut w, "bless", loser).is_err());
+    assert!(card(&w, "r3").contains("法术位：1 环 2"));
+    cast(&mut w, "cure_wounds", loser).unwrap();
+    assert!(!card(&w, &format!("r{loser}")).contains("生命 1/"));
+    assert!(card(&w, "r3").contains("法术位：1 环 1"));
+
+    // 睡够一觉：法术位回满，本人被告知
+    common::run(
+        &mut w,
+        "r3",
+        "nap",
+        json!({"prop_id":"cot","intent":{"verb":"睡觉"}}),
+    )
+    .unwrap();
+    w.step(30.0);
+    assert!(!w.awake("r3"));
+    w.step(470.0);
+    assert!(w.awake("r3"), "{:?}", w.action_group("r3", "nap"));
+    assert!(card(&w, "r3").contains("法术位：1 环 2"));
+
+    // 自己名下的里程碑达成：得经验
+    mode_act_on(&mut w, "r1", "declare", "saved", "灯塔留下了。");
+    assert!(card(&w, "r1").contains("经验 50"));
+    // 读档后角色卡一样
+    let copy = common::restore(&w, common::world_with(topo(), 7.0 * HOUR, &people));
+    assert_eq!(card(&w, "r3"), card(&copy, "r3"));
+    assert_eq!(card(&w, "r1"), card(&copy, "r1"));
+}
+
 fn mode_act_on(w: &mut World, id: &str, action: &str, target: &str, text: &str) {
     let action = GameModeAction {
         action: action.into(),

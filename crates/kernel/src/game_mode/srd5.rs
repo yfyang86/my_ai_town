@@ -3,7 +3,7 @@
 //! 职业的数据（生命骰、豁免熟练、能挑的技能）在 data/rules/5e/classes.json，编译时带进来。
 //! 现在有检定的全套：技能和属性检定、豁免、优势劣势、对抗、被动检定、帮一把、专精；
 //! 战斗、法术、休息和升级随后面几期加进来。
-use super::combat::{self, Attack, Fight, Member};
+use super::combat::{self, Attack, Fight, Member, Reach, Spell, SpellKind};
 use super::dice::Dice;
 use crate::error::{KernelError, Result};
 use protocol::{Abilities, CheckWay, DiceRoll, Edge, Srd5Sheet, StorylineCheck, ABILITIES, SKILLS};
@@ -31,6 +31,86 @@ struct ClassData {
     /// 背景另给的技能熟练数
     background_skills: usize,
 }
+
+/// 规则书里的一个法术（没算施法者的加值）
+#[derive(Debug, Clone, Deserialize)]
+pub struct SpellData {
+    pub id: String,
+    pub name: String,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub srd: String,
+    pub level: u32,
+    pub classes: Vec<String>,
+    pub kind: SpellKind,
+    pub reach: Reach,
+    #[serde(default)]
+    pub dice: (u32, u32),
+    #[serde(default)]
+    pub plus: i32,
+    /// 治疗量加施法属性的调整值
+    #[serde(default)]
+    pub add_mod: bool,
+    #[serde(default)]
+    pub save: Option<String>,
+    #[serde(default)]
+    pub half: bool,
+    #[serde(default)]
+    pub rays: u32,
+    #[serde(default)]
+    pub upcast_dice: u32,
+    #[serde(default)]
+    pub upcast_rays: u32,
+    #[serde(default)]
+    pub concentration: bool,
+    #[serde(default)]
+    pub marks: bool,
+    #[serde(default)]
+    pub rest_only: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct Slots {
+    /// 每一级各环有几个法术位
+    by_level: Vec<Vec<u32>>,
+}
+#[derive(Debug, Deserialize)]
+struct Experience {
+    /// 升到各级要的经验
+    levels: Vec<u32>,
+    creatures: BTreeMap<String, u32>,
+}
+#[derive(Debug, Deserialize)]
+struct Feature {
+    #[serde(default)]
+    dice_by_level: Vec<u32>,
+}
+#[derive(Debug, Deserialize)]
+struct Features {
+    sneak_attack: Feature,
+}
+#[derive(Debug, Deserialize)]
+struct Magic {
+    slots: Slots,
+    casting: BTreeMap<String, String>,
+    spells: Vec<SpellData>,
+    experience: Experience,
+    features: Features,
+}
+
+fn magic() -> &'static Magic {
+    static DATA: std::sync::OnceLock<Magic> = std::sync::OnceLock::new();
+    DATA.get_or_init(|| {
+        serde_json::from_str(include_str!("../../../../data/rules/5e/spells.json"))
+            .expect("data/rules/5e/spells.json 随源码带着，格式是对的")
+    })
+}
+
+/// 准备的法术最多这么多个
+const SPELLS_MAX: usize = 8;
+/// 睡够这么久（游戏分钟）算一次长休
+const LONG_REST_MINUTES: f64 = 360.0;
+/// 达成一个里程碑给的经验
+pub(super) const MILESTONE_XP: u32 = 50;
 
 fn data() -> &'static ClassData {
     static DATA: std::sync::OnceLock<ClassData> = std::sync::OnceLock::new();
@@ -171,6 +251,18 @@ pub struct Srd5 {
     /// 打赢了的遭遇战
     #[serde(default)]
     pub won: Vec<String>,
+    /// 每个座位各环还剩几个法术位（下标 0 是一环）
+    #[serde(default)]
+    pub slots: Vec<Vec<u32>>,
+    /// 每个座位的经验
+    #[serde(default)]
+    pub xp: Vec<u32>,
+    /// 回气用掉了没有（战士）
+    #[serde(default)]
+    pub winded: Vec<bool>,
+    /// 每个座位睡下的时刻；醒着时没有
+    #[serde(default)]
+    pub asleep_since: Vec<Option<f64>>,
 }
 
 impl Srd5 {
@@ -245,6 +337,23 @@ impl Srd5 {
             {
                 return Err(bad(format!("{who}：规则里没有这件武器或护甲")));
             }
+            // 准备的法术：要是这个职业的、环数用得了的
+            let top = Self::slot_table(&sheet.class, sheet.level).len() as u32;
+            let mut prepared = std::collections::BTreeSet::new();
+            for id in &sheet.spells {
+                let known = magic().spells.iter().find(|s| s.id == *id);
+                let fits =
+                    known.is_some_and(|s| s.classes.contains(&sheet.class) && s.level <= top);
+                if !fits || !prepared.insert(id) {
+                    return Err(bad(format!(
+                        "{who}：{} {} 级准备不了法术「{id}」，或者写了两次",
+                        class.name, sheet.level
+                    )));
+                }
+            }
+            if sheet.spells.len() > SPELLS_MAX {
+                return Err(bad(format!("{who}：准备的法术最多 {SPELLS_MAX} 个")));
+            }
             if sheet.expertise.len() > class.expertise
                 || sheet.expertise.iter().any(|e| !sheet.skills.contains(e))
             {
@@ -265,8 +374,25 @@ impl Srd5 {
             fight: None,
             fight_until: 0.0,
             won: Vec::new(),
+            slots: Vec::new(),
+            xp: vec![0; cast],
+            winded: vec![false; cast],
+            asleep_since: vec![None; cast],
         };
         rules.hp = (0..cast).map(|i| rules.hit_points(i) as i32).collect();
+        rules.slots = sheets
+            .iter()
+            .map(|s| Self::slot_table(&s.class, s.level))
+            .collect();
+        // 剧本里写的等级就是起点：经验从这一级的门槛算起
+        for (i, sheet) in sheets.iter().enumerate() {
+            rules.xp[i] = magic()
+                .experience
+                .levels
+                .get(sheet.level as usize - 1)
+                .copied()
+                .unwrap_or(0);
+        }
         Ok(rules)
     }
 
@@ -361,8 +487,87 @@ impl Srd5 {
         }
     }
 
+    /// 这个职业这一级各环有几个法术位；不会施法的没有
+    fn slot_table(class: &str, level: u32) -> Vec<u32> {
+        if !magic().casting.contains_key(class) {
+            return Vec::new();
+        }
+        magic()
+            .slots
+            .by_level
+            .get(level as usize - 1)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// 施法属性的调整值（牧师感知、法师智力）；不会施法的是 0
+    fn casting_mod(&self, seat: usize) -> i32 {
+        let sheet = &self.sheets[seat];
+        magic()
+            .casting
+            .get(&sheet.class)
+            .map_or(0, |a| modifier(score(&sheet.abilities, a)))
+    }
+
+    /// 这个人准备的法术，带上他自己的加值：法术攻击是熟练加值加施法属性，豁免难度是 8 加这两样
+    pub(super) fn spells(&self, seat: usize) -> Vec<Spell> {
+        let sheet = &self.sheets[seat];
+        let ability = self.casting_mod(seat);
+        let bonus = ability + proficiency(sheet.level);
+        sheet
+            .spells
+            .iter()
+            .filter_map(|id| magic().spells.iter().find(|s| s.id == *id))
+            .map(|s| Spell {
+                id: s.id.clone(),
+                name: s.name.clone(),
+                level: s.level,
+                kind: s.kind,
+                reach: s.reach,
+                dice: s.dice,
+                plus: s.plus + if s.add_mod { ability } else { 0 },
+                save: s.save.clone(),
+                half: s.half,
+                rays: s.rays,
+                upcast_dice: s.upcast_dice,
+                upcast_rays: s.upcast_rays,
+                concentration: s.concentration,
+                marks: s.marks,
+                rest_only: s.rest_only,
+                bonus,
+                dc: (8 + bonus).max(1) as u32,
+            })
+            .collect()
+    }
+
+    /// 豁免的加值：敏捷、体质、感知
+    fn save_mods(&self, seat: usize) -> (i32, i32, i32) {
+        let way = |ability: &str| CheckWay {
+            ability: ability.into(),
+            skill: None,
+            save: true,
+        };
+        (
+            self.bonus(seat, &way("dex")),
+            self.bonus(seat, &way("con")),
+            self.bonus(seat, &way("wis")),
+        )
+    }
+
     /// 这个角色参战时带的数
     pub(super) fn member(&self, seat: usize, name: String) -> Member {
+        let sheet = &self.sheets[seat];
+        let sneak = if sheet.class == "rogue" {
+            magic()
+                .features
+                .sneak_attack
+                .dice_by_level
+                .get(sheet.level as usize - 1)
+                .copied()
+                .unwrap_or(1)
+        } else {
+            0
+        };
         Member {
             name,
             seat,
@@ -370,8 +575,160 @@ impl Srd5 {
             max_hp: self.hit_points(seat) as i32,
             ac: self.armor_class(seat),
             attack: self.attack(seat),
-            dex: modifier(self.sheets[seat].abilities.dex),
+            dex: modifier(sheet.abilities.dex),
+            level: sheet.level,
+            slots: self.slots.get(seat).cloned().unwrap_or_default(),
+            spells: self.spells(seat),
+            save_mods: self.save_mods(seat),
+            sneak,
+            second_wind: sheet.class == "fighter"
+                && !self.winded.get(seat).copied().unwrap_or(false),
         }
+    }
+
+    /// 打完一场把角色的状况记回来：生命（倒下没死的缓过来剩 1 点）、法术位、回气用没用
+    pub(super) fn settle(&mut self) -> (Vec<usize>, Vec<String>) {
+        let (mut dead, mut woke) = (Vec::new(), Vec::new());
+        let Some(fight) = &mut self.fight else {
+            return (dead, woke);
+        };
+        for f in &mut fight.fighters {
+            let Some(seat) = f.seat else {
+                continue;
+            };
+            if f.dead {
+                self.hp[seat] = 0;
+                dead.push(seat);
+                continue;
+            }
+            if f.hp <= 0 {
+                f.hp = 1;
+                f.prone = false;
+                woke.push(f.name.clone());
+            }
+            self.hp[seat] = f.hp;
+            if let Some(slots) = self.slots.get_mut(seat) {
+                *slots = f.slots.clone();
+            }
+            if self.sheets[seat].class == "fighter" {
+                self.winded[seat] = !f.second_wind;
+            }
+        }
+        (dead, woke)
+    }
+
+    /// 给这个人加经验；够了就升级（最高 3 级）：生命上限涨多少现在的生命就涨多少，法术位照新等级补上。
+    /// 返回升到了几级，没升是 None。
+    pub(super) fn gain(&mut self, seat: usize, xp: u32) -> Option<u32> {
+        self.xp[seat] += xp;
+        let levels = &magic().experience.levels;
+        let earned = levels.iter().filter(|need| self.xp[seat] >= **need).count() as u32;
+        let now = self.sheets[seat].level;
+        if earned <= now {
+            return None;
+        }
+        let before = self.hit_points(seat) as i32;
+        self.sheets[seat].level = earned.min(*LEVELS.end());
+        let after = self.hit_points(seat) as i32;
+        if self.hp[seat] > 0 {
+            self.hp[seat] += after - before;
+        }
+        let table = Self::slot_table(&self.sheets[seat].class, self.sheets[seat].level);
+        if let Some(slots) = self.slots.get_mut(seat) {
+            let had = slots.clone();
+            *slots = table
+                .iter()
+                .enumerate()
+                .map(|(k, full)| {
+                    // 新得的法术位马上能用，已经用掉的不回来
+                    let old_full = Self::slot_table(&self.sheets[seat].class, now)
+                        .get(k)
+                        .copied()
+                        .unwrap_or(0);
+                    had.get(k).copied().unwrap_or(0) + full.saturating_sub(old_full)
+                })
+                .collect();
+        }
+        Some(self.sheets[seat].level)
+    }
+
+    /// 打赢一场遭遇战值多少经验（对手的经验加起来）
+    pub(super) fn fight_xp(fight: &Fight) -> u32 {
+        fight
+            .fighters
+            .iter()
+            .filter_map(|f| f.creature.as_ref())
+            .map(|c| magic().experience.creatures.get(c).copied().unwrap_or(0))
+            .sum()
+    }
+
+    /// 每一拍告诉它这个人睡没睡着。睡够了一觉醒来算一次长休：生命回满、法术位回满、回气能再用。
+    /// 返回这一下是不是刚歇好。
+    pub(super) fn note_sleep(&mut self, seat: usize, asleep: bool, now: f64) -> bool {
+        match (asleep, self.asleep_since[seat]) {
+            (true, None) => {
+                self.asleep_since[seat] = Some(now);
+                false
+            }
+            (false, Some(since)) => {
+                self.asleep_since[seat] = None;
+                if now - since < LONG_REST_MINUTES || self.hp[seat] <= 0 {
+                    return false;
+                }
+                self.hp[seat] = self.hit_points(seat) as i32;
+                self.slots[seat] =
+                    Self::slot_table(&self.sheets[seat].class, self.sheets[seat].level);
+                self.winded[seat] = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 不在打的时候施一个治疗的法术：对象是同在一处的自己人（座位下标），返回每个人回了多少。
+    pub(super) fn cast_heal(
+        &mut self,
+        seat: usize,
+        id: &str,
+        slot: u32,
+        targets: &[usize],
+    ) -> Result<Vec<(usize, i32)>> {
+        let spell = self
+            .spells(seat)
+            .into_iter()
+            .find(|s| s.id == id)
+            .ok_or_else(|| bad(format!("你没有准备「{id}」")))?;
+        if spell.kind != SpellKind::Heal {
+            return Err(bad(format!("{}只在战斗里用得上", spell.name)));
+        }
+        let slot = slot.max(spell.level);
+        if self.slots[seat]
+            .get(slot as usize - 1)
+            .is_none_or(|n| *n == 0)
+        {
+            return Err(bad(format!("{slot} 环的法术位用完了")));
+        }
+        let targets: Vec<usize> = match spell.reach {
+            Reach::Group => targets.to_vec(),
+            _ => targets.iter().copied().take(1).collect(),
+        };
+        if targets.is_empty() {
+            return Err(bad(format!("{}要指一个对象", spell.name)));
+        }
+        self.slots[seat][slot as usize - 1] -= 1;
+        let count = spell.dice.0 + spell.upcast_dice * (slot - spell.level);
+        let mut healed = Vec::new();
+        for t in targets {
+            let amount = (0..count)
+                .map(|_| self.dice.roll(spell.dice.1))
+                .sum::<u32>() as i32
+                + spell.plus;
+            let max = self.hit_points(t) as i32;
+            let before = self.hp[t];
+            self.hp[t] = (before.max(0) + amount.max(1)).min(max);
+            healed.push((t, self.hp[t] - before));
+        }
+        Ok(healed)
     }
 
     pub(super) fn trim_rolls(&mut self) {
@@ -417,9 +774,29 @@ impl Srd5 {
         };
         let attack = self.attack(seat);
         let now = self.hp.get(seat).copied().unwrap_or(0).max(0);
+        let spells = self.spells(seat);
+        let magic = if spells.is_empty() {
+            String::new()
+        } else {
+            let slots: Vec<String> = self.slots[seat]
+                .iter()
+                .enumerate()
+                .map(|(k, n)| format!("{} 环 {n}", k + 1))
+                .collect();
+            let names: Vec<String> = spells
+                .iter()
+                .map(|s| format!("{}={}", s.id, s.name))
+                .collect();
+            format!(
+                " · 法术位：{} · 准备的法术：{}",
+                slots.join("、"),
+                names.join("、")
+            )
+        };
         format!(
-            "{class} {} 级 · 生命 {now}/{} · 护甲 {}（{}{}）· {}（{:+} 命中，{}d{}{:+}）· {} · 豁免熟练：{}{trained}",
+            "{class} {} 级（经验 {}）· 生命 {now}/{} · 护甲 {}（{}{}）· {}（{:+} 命中，{}d{}{:+}）· {} · 豁免熟练：{}{trained}{magic}",
             sheet.level,
+            self.xp.get(seat).copied().unwrap_or(0),
             self.hit_points(seat),
             self.armor_class(seat),
             combat::gear()
@@ -556,6 +933,66 @@ mod tests {
     use super::*;
 
     /// 规则数据每一项都写着出自规则书的哪一节，只有计划里定下的四个职业；技能和豁免都是规则里有的。
+    /// 法术每一个都写着出处；角色卡上只能准备本职业、够得着环数的法术；
+    /// 经验够了就升级：生命上限和法术位照新等级算，新得的法术位马上能用，用掉的不回来。
+    #[test]
+    fn spell_data_cites_the_srd_and_levels_follow_experience() {
+        for s in &magic().spells {
+            assert!(s.srd.starts_with("Spells > "), "{} 没写出处", s.id);
+            assert!(s.level <= 2);
+            assert!(s.classes.iter().all(|c| c == "cleric" || c == "wizard"));
+        }
+        let card = |class: &str, spells: &[&str]| Srd5Sheet {
+            class: class.into(),
+            level: 1,
+            abilities: Abilities {
+                str: 13,
+                dex: 8,
+                con: 14,
+                int: 10,
+                wis: 16,
+                cha: 12,
+            },
+            skills: vec![],
+            expertise: vec![],
+            weapon: None,
+            armor: None,
+            shield: false,
+            spells: spells.iter().map(|s| s.to_string()).collect(),
+        };
+        let bad = |s: Srd5Sheet| Srd5::open(&[s], 1, 1).is_err();
+        assert!(bad(card("fighter", &["cure_wounds"])));
+        assert!(bad(card("wizard", &["cure_wounds"])));
+        assert!(bad(card("cleric", &["fireball"])));
+        assert!(bad(card("cleric", &["hold_person"])), "一级够不着二环");
+        let mut rules = Srd5::open(&[card("cleric", &["cure_wounds", "bless"])], 1, 1).unwrap();
+        assert_eq!((rules.hit_points(0), rules.slots[0].clone()), (10, vec![2]));
+        // 治疗：1d8 加感知调整值 3，耗一个一环位
+        rules.hp[0] = 1;
+        let healed = rules.cast_heal(0, "cure_wounds", 1, &[0]).unwrap();
+        assert!((4..=11).contains(&healed[0].1));
+        assert_eq!(rules.slots[0], vec![1]);
+        assert!(rules.cast_heal(0, "bless", 1, &[0]).is_err());
+        rules.hp[0] = 10;
+        rules.slots[0][0] = 0;
+        assert!(rules.cast_heal(0, "cure_wounds", 1, &[0]).is_err());
+        assert_eq!(rules.gain(0, 299), None);
+        assert_eq!(rules.gain(0, 1), Some(2));
+        assert_eq!((rules.hit_points(0), rules.hp[0]), (17, 17));
+        assert_eq!(rules.slots[0], vec![1]);
+        assert_eq!(rules.gain(0, 600), Some(3));
+        assert_eq!(rules.slots[0], vec![2, 2]);
+        assert_eq!(rules.gain(0, 5000), None, "最高三级");
+        assert!(rules.sheet_line(0).contains("3 级（经验 5900）"));
+        // 睡不够六个小时不算长休；睡够了生命和法术位回满
+        rules.hp[0] = 3;
+        assert!(!rules.note_sleep(0, true, 0.0));
+        assert!(!rules.note_sleep(0, false, 200.0));
+        assert!(!rules.note_sleep(0, true, 300.0));
+        assert!(rules.note_sleep(0, false, 300.0 + LONG_REST_MINUTES));
+        assert_eq!((rules.hp[0], rules.slots[0].clone()), (24, vec![4, 2]));
+    }
+
     /// 生命值和加值照规则算：战士 1 级体质 14 是 12 点，3 级是 28 点；游荡者专精的技能熟练加值算两次；
     /// 职业熟练的豁免加熟练加值，不熟练的只有属性调整值。
     #[test]
@@ -590,6 +1027,7 @@ mod tests {
             weapon: None,
             armor: None,
             shield: false,
+            spells: vec![],
         };
         let fighter = abilities(16, 12, 14, 10, 13, 8);
         let rogue = abilities(8, 16, 12, 13, 10, 14);

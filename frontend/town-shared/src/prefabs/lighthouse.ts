@@ -115,7 +115,7 @@ const sheet = (
   cls: string,
   [str, dex, con, int, wis, cha]: number[],
   skills: string[],
-  gear: Pick<Srd5Sheet, 'weapon' | 'armor' | 'shield' | 'expertise'> = {}
+  gear: Pick<Srd5Sheet, 'weapon' | 'armor' | 'shield' | 'expertise' | 'spells'> = {}
 ): Srd5Sheet => ({
   class: cls,
   level: 1,
@@ -133,8 +133,13 @@ const SHEETS: Srd5Sheet[] = [
     weapon: 'handaxe',
     armor: 'leather',
   }),
-  sheet('wizard', [8, 12, 10, 15, 13, 15], ['persuasion', 'insight']),
-  sheet('cleric', [10, 10, 13, 12, 16, 13], ['insight', 'perception'], { weapon: 'mace' }),
+  sheet('wizard', [8, 12, 10, 15, 13, 15], ['persuasion', 'insight'], {
+    spells: ['fire_bolt', 'magic_missile', 'burning_hands'],
+  }),
+  sheet('cleric', [10, 10, 13, 12, 16, 13], ['insight', 'perception'], {
+    weapon: 'mace',
+    spells: ['sacred_flame', 'cure_wounds', 'bless', 'guiding_bolt'],
+  }),
   sheet('rogue', [10, 15, 12, 14, 13, 8], ['investigation', 'sleight_of_hand'], {
     weapon: 'dagger',
   }),

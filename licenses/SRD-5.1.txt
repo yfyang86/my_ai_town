@@ -20,12 +20,21 @@ What is taken from it in this repository
 - Ten creatures (bandit, guard, thug, cultist, goblin, skeleton, zombie, wolf, giant rat, mastiff):
   Armor Class, hit points, Dexterity and one attack each.
 - Nine weapons and four armours with their damage dice and Armor Class, and the shield.
+- Spellcasting: spell slots by class level for cleric and wizard (levels 1-3), spellcasting ability,
+  spell attack bonus and spell save DC, cantrips, casting with a higher-level slot, concentration.
+- Fourteen spells: Fire Bolt, Ray of Frost, Sacred Flame, Magic Missile, Burning Hands, Thunderwave,
+  Guiding Bolt, Inflict Wounds, Cure Wounds, Healing Word, Bless, Scorching Ray, Hold Person,
+  Prayer of Healing - level, range reduced to "touch / at range / an area", damage or healing dice,
+  saving throw and concentration.
+- The fighter's Second Wind and the rogue's Sneak Attack.
+- The long rest; experience points by creature and the experience needed for levels 2 and 3.
 
 Where it is used
 - crates/protocol/src/game_mode/ruleset.rs
 - crates/kernel/src/game_mode/srd5.rs
 - data/rules/5e/classes.json
 - data/rules/5e/creatures.json
+- data/rules/5e/spells.json
 - crates/kernel/src/game_mode/combat.rs
 - frontend/town-shared/src/prefabs/lighthouse.ts (character sheets and checks for the optional rules switch)
 

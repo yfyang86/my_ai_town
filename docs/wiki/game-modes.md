@@ -136,7 +136,7 @@ A beat may carry an **encounter**: a title, two to five named zones in a line, t
 | Data | `data/rules/5e/creatures.json`: ten creatures, nine weapons, four armours, each citing its SRD section |
 | Combatants | Characters fight from their sheet (weapon, armour, shield → attack bonus, damage, AC). **Creatures exist only in the fight** — not on the map, no model calls; they follow simple tactics |
 | Order | Initiative: d20 + Dexterity modifier, once, highest first |
-| A turn | Optionally step to an adjacent zone, then one of: attack, dodge, disengage, dash, help, flee, pass |
+| A turn | Optionally step to an adjacent zone, then one of: attack, cast, dodge, disengage, dash, help, second_wind, flee, pass |
 | Reach | Melee needs the same zone; ranged reaches anywhere, with disadvantage if an enemy stands beside you |
 | Leaving a zone | Each enemy there with a melee attack and an unused reaction makes an opportunity attack, unless you disengaged |
 | Attack | d20 + bonus vs. AC; natural 1 misses, natural 20 hits and doubles the damage dice. Advantage against a prone target in melee or after an ally's help; disadvantage against a dodging target |
@@ -148,11 +148,27 @@ A character's turn has a deadline of 15 game minutes — the same order as a sce
 
 `combat.rs` does not touch the world: it takes dice and returns what happened as lines. `storyline.rs` announces them, wakes whoever is up, and applies deaths. That is why a thousand fights can be simulated in a unit test.
 
-Not yet: violence between characters (still refused by `judge`), conditions beyond prone / dodging / unconscious, hit points reflected in the kernel's health meter.
+#### Magic, rest and growth
+
+| Piece | Rule here |
+| --- | --- |
+| Data | `data/rules/5e/spells.json`: fourteen cleric and wizard spells (cantrips, 1st and 2nd level), slots by level, casting ability, experience thresholds and creature experience, second wind and sneak attack — each citing its SRD section |
+| Prepared spells | `Srd5Sheet.spells`, validated at open: own class only, a level the character has slots for, at most eight |
+| Kinds | `attack` (spell attack vs. AC), `save` (full damage on a failed save, half or none on a success; `zone` reach covers every enemy in a zone), `auto` (magic missile), `heal`, `bless`, `hold` |
+| Derived | Spell attack = proficiency + casting modifier; save DC = 8 + the same. Never typed in |
+| Slots | A cantrip costs none; anything else spends a slot of its level or higher (`with.slot`), and some spells gain dice or missiles from a higher slot. An illegal cast is refused before anything is rolled or spent |
+| Concentration | One spell at a time. Taking damage forces a Constitution save (DC 10 or half the damage); failing or dropping to 0 ends the spell and what it granted |
+| Healing | In a fight, `cast` on an ally; an unconscious character wakes. Outside a fight, `mode_action cast` heals someone in the same place; `prayer_of_healing` reaches everyone there and cannot be cast mid-fight |
+| Class features | Fighter: second wind (1d10 + level, once per long rest). Rogue: sneak attack (extra d6s once a turn, with advantage or an ally beside the target) |
+| Long rest | A real sleep in the world of at least six hours: on waking, hit points, slots and second wind are back, and the character is told. Tracked in `Storyline::rest` from `World::awake` |
+| Experience | Winning an encounter splits its creatures' experience among the characters still alive; reaching a milestone in your own name gives 50. Levels 2 and 3 at 300 and 900: hit points rise, new slots are usable at once |
+| Duel | `mode_action duel` with `target` a seat: two characters in the same place fight by the same turn rules until one drops. Nobody dies, the loser comes round with 1 hit point, no experience. This is the only way to use force on a person while a ruleset is on |
+
+Not yet: short rests and hit dice, loot and potions, spells that help a scripted check, action surge and channel divinity, conditions beyond prone / dodging / unconscious / held, hit points reflected in the kernel's health meter.
 
 `mode_action check`: `target` is the check id; `with.skill` or `with.ability` picks the way (optional when there is only one; a save's key is `<ability>_save`). Each resident's context lists the checks open to them with *their own* bonus for each way, so the model can choose its best approach or leave it to someone better.
 
-With a ruleset on, `judge` refuses shoving, robbing and stealing: harming someone will go through combat rules. The plan for the rest (combat, magic, rest, progression, a model narrator) is in `Sprints/ruleset-5e/plan.md`.
+With a ruleset on, `judge` refuses shoving, robbing and stealing and points to `duel`. The plan for the rest (a model narrator, adventure drafting) is in `Sprints/ruleset-5e/plan.md`.
 
 ## Adding a mode — checklist
 

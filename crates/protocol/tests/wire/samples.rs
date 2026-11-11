@@ -1771,6 +1771,7 @@ pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
                                 weapon: Some("longsword".into()),
                                 armor: Some("chain_mail".into()),
                                 shield: true,
+                                spells: vec![],
                             },
                             Srd5Sheet {
                                 class: "rogue".into(),
@@ -1788,6 +1789,7 @@ pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
                                 weapon: None,
                                 armor: None,
                                 shield: false,
+                                spells: vec![],
                             },
                         ],
                     }),

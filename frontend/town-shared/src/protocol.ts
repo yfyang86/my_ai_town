@@ -783,6 +783,8 @@ export interface Srd5Sheet {
   /** 身上的甲（leather、chain_shirt、chain_mail）；不写是没穿 */
   armor?: string
   shield?: boolean
+  /** 准备的法术编号（cure_wounds、magic_missile……）：只有牧师和法师有，要是本职业、这一级够得着的 */
+  spells?: string[]
 }
 /** 节拍上的一场遭遇战：几块相邻的区域排成一线，来的对手，卷进来的角色 */
 export interface StorylineEncounter {

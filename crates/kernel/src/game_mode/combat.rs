@@ -42,7 +42,88 @@ pub struct Creature {
     pub ac: u32,
     pub hp: i32,
     pub dex: u32,
+    #[serde(default = "ten")]
+    pub con: u32,
+    #[serde(default = "ten")]
+    pub wis: u32,
+    /// 人形生物：定身术只对它们有用
+    #[serde(default)]
+    pub humanoid: bool,
     pub attack: Attack,
+}
+
+fn ten() -> u32 {
+    10
+}
+
+/// 法术怎么生效
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpellKind {
+    /// 掷法术攻击对护甲等级
+    Attack,
+    /// 对方过豁免：没过吃全额，过了吃一半或不吃
+    Save,
+    /// 必中
+    Auto,
+    Heal,
+    /// 祝福：最多三个自己人攻击和豁免多掷一颗 d4（专注）
+    Bless,
+    /// 定身：感知豁免没过就动弹不得（专注）
+    Hold,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reach {
+    Ranged,
+    /// 要碰到：同一块区域
+    Touch,
+    /// 罩住一块区域里所有的对手
+    Zone,
+    /// 在场的自己人都算（只能休整时用）
+    Group,
+}
+
+/// 一个准备好的法术，施法者的加值已经算进去了
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Spell {
+    pub id: String,
+    pub name: String,
+    /// 环数；戏法是 0
+    pub level: u32,
+    pub kind: SpellKind,
+    pub reach: Reach,
+    #[serde(default)]
+    pub dice: (u32, u32),
+    /// 每次伤害或治疗另加的数（魔法飞弹每发 +1，治疗加施法属性调整值）
+    #[serde(default)]
+    pub plus: i32,
+    #[serde(default)]
+    pub save: Option<String>,
+    #[serde(default)]
+    pub half: bool,
+    /// 一次几发
+    #[serde(default)]
+    pub rays: u32,
+    /// 用高一环的法术位多几颗骰、多几发
+    #[serde(default)]
+    pub upcast_dice: u32,
+    #[serde(default)]
+    pub upcast_rays: u32,
+    #[serde(default)]
+    pub concentration: bool,
+    /// 打中后下一次打这个对象的攻击有优势
+    #[serde(default)]
+    pub marks: bool,
+    /// 要花十分钟：打着的时候施不了
+    #[serde(default)]
+    pub rest_only: bool,
+    /// 法术攻击加值、豁免难度
+    #[serde(default)]
+    pub bonus: i32,
+    #[serde(default)]
+    pub dc: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -123,6 +204,43 @@ pub struct Fighter {
     /// 退出了这场战斗
     #[serde(default)]
     pub fled: bool,
+    /// 哪一边：0 是角色（决斗里是先动手的），1 是对手
+    #[serde(default)]
+    pub side: u8,
+    /// 是哪种生物（算经验用）；角色没有
+    #[serde(default)]
+    pub creature: Option<String>,
+    #[serde(default)]
+    pub humanoid: bool,
+    #[serde(default)]
+    pub level: u32,
+    /// 法术位：下标 0 是一环，值是还剩几个
+    #[serde(default)]
+    pub slots: Vec<u32>,
+    #[serde(default)]
+    pub spells: Vec<Spell>,
+    /// 敏捷、体质、感知豁免的加值
+    #[serde(default)]
+    pub save_mods: (i32, i32, i32),
+    /// 专注着的法术和它罩着的人
+    #[serde(default)]
+    pub focus: Option<(String, Vec<usize>)>,
+    #[serde(default)]
+    pub blessed: bool,
+    /// 被定身：谁定的、豁免难度
+    #[serde(default)]
+    pub held: Option<(usize, u32)>,
+    /// 被指引之箭照亮：下一次打他的攻击有优势
+    #[serde(default)]
+    pub marked: bool,
+    /// 偷袭多掷几颗 d6（游荡者）；这一回合用过没有
+    #[serde(default)]
+    pub sneak: u32,
+    #[serde(default)]
+    pub sneaked: bool,
+    /// 回气还能用（战士，一场休息一次）
+    #[serde(default)]
+    pub second_wind: bool,
 }
 
 impl Fighter {
@@ -159,6 +277,15 @@ impl Fighter {
             if self.dodging {
                 s.push("闪避".to_string());
             }
+            if self.held.is_some() {
+                s.push("被定身".to_string());
+            }
+            if self.blessed {
+                s.push("受祝福".to_string());
+            }
+            if self.focus.is_some() {
+                s.push("专注中".to_string());
+            }
         }
         s
     }
@@ -183,6 +310,14 @@ pub enum Deed {
     Help(usize),
     Flee,
     Pass,
+    /// 施法：哪个法术、用几环的法术位、对谁
+    Cast {
+        spell: String,
+        slot: u32,
+        target: Option<usize>,
+    },
+    /// 回气（战士）：回 1d10 + 等级点生命
+    SecondWind,
 }
 
 /// 角色交的一回合：先走不走、做什么
@@ -216,6 +351,34 @@ pub struct Member {
     pub ac: u32,
     pub attack: Attack,
     pub dex: i32,
+    pub level: u32,
+    pub slots: Vec<u32>,
+    pub spells: Vec<Spell>,
+    pub save_mods: (i32, i32, i32),
+    pub sneak: u32,
+    pub second_wind: bool,
+}
+
+fn fighter_of(m: Member, zone: usize, side: u8) -> Fighter {
+    Fighter {
+        name: m.name,
+        seat: Some(m.seat),
+        hp: m.hp,
+        max_hp: m.max_hp,
+        ac: m.ac,
+        zone,
+        attack: m.attack,
+        dex: m.dex,
+        side,
+        humanoid: true,
+        level: m.level,
+        slots: m.slots,
+        spells: m.spells,
+        save_mods: m.save_mods,
+        sneak: m.sneak,
+        second_wind: m.second_wind,
+        ..blank()
+    }
 }
 
 /// 剧本里的一场遭遇战合不合规：区域数、对手数和种类、位置都对得上。
@@ -280,17 +443,7 @@ impl Fight {
     pub fn open(enc: &StorylineEncounter, members: Vec<Member>, dice: &mut Dice) -> Self {
         let mut fighters: Vec<Fighter> = members
             .into_iter()
-            .map(|m| Fighter {
-                name: m.name,
-                seat: Some(m.seat),
-                hp: m.hp,
-                max_hp: m.max_hp,
-                ac: m.ac,
-                zone: enc.party_zone as usize,
-                attack: m.attack,
-                dex: m.dex,
-                ..blank()
-            })
+            .map(|m| fighter_of(m, enc.party_zone as usize, 0))
             .collect();
         let mut counts = std::collections::BTreeMap::new();
         for foe in &enc.foes {
@@ -316,6 +469,14 @@ impl Fight {
                 zone: foe.zone as usize,
                 attack: c.attack.clone(),
                 dex: (c.dex as i32 - 10).div_euclid(2),
+                side: 1,
+                creature: Some(c.id.clone()),
+                humanoid: c.humanoid,
+                save_mods: (
+                    (c.dex as i32 - 10).div_euclid(2),
+                    (c.con as i32 - 10).div_euclid(2),
+                    (c.wis as i32 - 10).div_euclid(2),
+                ),
                 ..blank()
             });
         }
@@ -349,7 +510,7 @@ impl Fight {
     }
 
     fn hostile(&self, a: usize, b: usize) -> bool {
-        self.fighters[a].party() != self.fighters[b].party()
+        self.fighters[a].side != self.fighters[b].side
     }
 
     /// 这个人的敌人里还站着的
@@ -376,8 +537,23 @@ impl Fight {
         if !f.present() {
             return (lines, false);
         }
+        f.sneaked = false;
         if f.hp > 0 {
             f.prone = false;
+            // 被定身的人轮到时再过一次感知豁免：过了就挣脱，没过这一回合动不了
+            if let Some((by, dc)) = f.held {
+                let name = f.name.clone();
+                if self.save(i, ("wis", dc), "定身", dice, rolls, at) {
+                    self.fighters[i].held = None;
+                    if self.fighters[by].focus.is_some() {
+                        self.fighters[by].focus = None;
+                    }
+                    lines.push(format!("{name} 挣脱了定身"));
+                } else {
+                    lines.push(format!("{name} 还被定着，动不了"));
+                    return (lines, false);
+                }
+            }
             return (lines, true);
         }
         if f.stable || !f.party() {
@@ -449,7 +625,9 @@ impl Fight {
             .iter()
             .any(|&k| self.fighters[k].zone == self.fighters[i].zone);
         let t = &self.fighters[target];
-        let up = (t.prone && !attack.ranged) || self.fighters[i].aided || t.hp <= 0;
+        let held = t.held.is_some();
+        let up =
+            (t.prone && !attack.ranged) || self.fighters[i].aided || t.hp <= 0 || t.marked || held;
         let down = t.dodging || (attack.ranged && crowded) || (t.prone && attack.ranged);
         let edge = match (up, down) {
             (true, false) => Some(Edge::Advantage),
@@ -457,6 +635,7 @@ impl Fight {
             _ => None,
         };
         self.fighters[i].aided = false;
+        self.fighters[target].marked = false;
         let first = dice.roll(20);
         let (thrown, kept) = match edge {
             None => (vec![first], first),
@@ -470,9 +649,17 @@ impl Fight {
                 (vec![first, second], kept)
             }
         };
-        let total = kept as i32 + attack.bonus;
+        // 受祝福的攻击多掷一颗 d4
+        let bless = if self.fighters[i].blessed {
+            dice.roll(4) as i32
+        } else {
+            0
+        };
+        let total = kept as i32 + attack.bonus + bless;
         let ac = self.fighters[target].ac;
-        let crit = kept == 20;
+        // 掷出 20，或者近身打中动弹不得的人，都算重击
+        let landed = kept != 1 && (kept == 20 || total >= ac as i32);
+        let crit = kept == 20 || (landed && held && !attack.ranged);
         let hit = kept != 1 && (crit || total >= ac as i32);
         rolls.push(DiceRoll {
             at,
@@ -510,41 +697,480 @@ impl Fight {
         } else {
             attack.dice.0
         };
-        let damage = (roll_dice(dice, (count, attack.dice.1)).iter().sum::<u32>() as i32
+        let mut damage = (roll_dice(dice, (count, attack.dice.1)).iter().sum::<u32>() as i32
             + attack.plus)
             .max(1);
+        // 偷袭（游荡者）：有优势，或者目标身边有自己的同伴，每回合一次，多掷几颗 d6
+        let flanked = (0..self.fighters.len()).any(|k| {
+            k != i
+                && !self.hostile(i, k)
+                && self.fighters[k].active()
+                && self.fighters[k].zone == self.fighters[target].zone
+        });
+        let mut sneak = String::new();
+        let me = &self.fighters[i];
+        if me.sneak > 0 && !me.sneaked && (edge == Some(Edge::Advantage) || flanked) {
+            let extra = roll_dice(dice, (me.sneak * if crit { 2 } else { 1 }, 6))
+                .iter()
+                .sum::<u32>() as i32;
+            damage += extra;
+            sneak = format!("（偷袭 +{extra}）。");
+            self.fighters[i].sneaked = true;
+        }
+        let after = format!(
+            "{sneak}{}",
+            self.hurt(target, damage, crit, dice, rolls, at)
+        );
+        format!(
+            "{head}：{}，伤害 {damage}{}{after}",
+            if crit { "重击" } else { "命中" },
+            if after.starts_with('（') { "" } else { "。" }
+        )
+    }
+
+    /// 伤害落到一个人身上：还醒着的扣生命，扣到 0 角色倒地昏迷、对手倒下；已经昏迷的算死亡豁免失败（重击两次）。
+    /// 正专注着法术的人挨了打要过体质豁免（难度 10 和伤害一半里高的），没过法术就断了。返回这一下的结果。
+    fn hurt(
+        &mut self,
+        target: usize,
+        damage: i32,
+        crit: bool,
+        dice: &mut Dice,
+        rolls: &mut Vec<DiceRoll>,
+        at: f64,
+    ) -> String {
         let t = &mut self.fighters[target];
         let name = t.name.clone();
-        let after = if t.hp <= 0 {
-            // 已经昏迷的再挨打：算死亡豁免失败，重击算两次
+        if t.hp <= 0 {
             t.saves.1 = (t.saves.1 + if crit { 2 } else { 1 }).min(3);
             t.stable = false;
-            if t.saves.1 >= 3 {
+            return if t.saves.1 >= 3 {
                 t.dead = true;
                 format!("{name} 没撑过去，死了")
             } else {
                 format!("{name} 昏迷中又挨了一下（死亡豁免失败 {}/3）", t.saves.1)
+            };
+        }
+        t.hp -= damage;
+        if t.hp > 0 {
+            let mut line = format!("{name} 还剩 {} 点生命", t.hp);
+            if t.focus.is_some() {
+                let dc = (damage / 2).max(10);
+                let die = dice.roll(20);
+                let total = die as i32 + t.save_mods.1;
+                let kept = total >= dc;
+                rolls.push(DiceRoll {
+                    at,
+                    seat: t.seat.map_or(0, |s| s as u32 + 1),
+                    what: format!("{name} 维持专注"),
+                    way: "体质豁免".into(),
+                    formula: format!("d20{:+}", t.save_mods.1),
+                    dice: vec![die],
+                    modifier: t.save_mods.1,
+                    total,
+                    dc: Some(dc as u32),
+                    success: Some(kept),
+                    edge: None,
+                    versus: None,
+                });
+                if !kept {
+                    line.push_str(&format!("，{}", self.drop_focus(target)));
+                }
             }
+            return line;
+        }
+        t.hp = 0;
+        let fell = if t.party() {
+            t.prone = true;
+            t.saves = (0, 0);
+            t.stable = false;
+            format!("{name} 倒下昏迷了")
         } else {
-            t.hp -= damage;
-            if t.hp > 0 {
-                format!("{name} 还剩 {} 点生命", t.hp)
-            } else if t.party() {
-                t.hp = 0;
-                t.prone = true;
-                t.saves = (0, 0);
-                t.stable = false;
-                format!("{name} 倒下昏迷了")
-            } else {
-                t.hp = 0;
-                t.dead = true;
-                format!("{name} 倒下了")
-            }
+            t.dead = true;
+            format!("{name} 倒下了")
         };
+        if self.fighters[target].focus.is_some() {
+            format!("{fell}，{}", self.drop_focus(target))
+        } else {
+            fell
+        }
+    }
+
+    /// 专注断了：法术罩着的人身上的效果跟着没了。
+    fn drop_focus(&mut self, caster: usize) -> String {
+        let Some((spell, targets)) = self.fighters[caster].focus.take() else {
+            return String::new();
+        };
+        for t in targets {
+            if let Some(f) = self.fighters.get_mut(t) {
+                f.blessed = false;
+                if f.held.is_some_and(|(by, _)| by == caster) {
+                    f.held = None;
+                }
+            }
+        }
+        let name = self.fighters[caster]
+            .spells
+            .iter()
+            .find(|s| s.id == spell)
+            .map_or(spell.clone(), |s| s.name.clone());
+        format!("{} 的{name}断了", self.fighters[caster].name)
+    }
+
+    /// 回生命：不超过上限；昏迷的人醒过来（倒在地上，轮到时自己站起来）。
+    fn heal(&mut self, target: usize, amount: i32) -> String {
+        let t = &mut self.fighters[target];
+        let was_down = t.hp <= 0;
+        t.hp = (t.hp.max(0) + amount.max(1)).min(t.max_hp);
+        if was_down {
+            t.saves = (0, 0);
+            t.stable = false;
+        }
         format!(
-            "{head}：{}，伤害 {damage}。{after}",
-            if crit { "重击" } else { "命中" }
+            "{} 回了 {amount} 点生命，现在 {}/{}{}",
+            t.name,
+            t.hp,
+            t.max_hp,
+            if was_down { "，醒了过来" } else { "" }
         )
+    }
+
+    /// 一次豁免：d20 加这项豁免的加值，不低于难度就过。受祝福的再加 1d4。
+    fn save(
+        &mut self,
+        who: usize,
+        (ability, dc): (&str, u32),
+        what: &str,
+        dice: &mut Dice,
+        rolls: &mut Vec<DiceRoll>,
+        at: f64,
+    ) -> bool {
+        let f = &self.fighters[who];
+        let bonus = match ability {
+            "dex" => f.save_mods.0,
+            "con" => f.save_mods.1,
+            _ => f.save_mods.2,
+        };
+        let die = dice.roll(20);
+        let extra = if f.blessed { dice.roll(4) as i32 } else { 0 };
+        let total = die as i32 + bonus + extra;
+        let ok = total >= dc as i32;
+        rolls.push(DiceRoll {
+            at,
+            seat: f.seat.map_or(0, |s| s as u32 + 1),
+            what: format!("{} 抵抗{what}", f.name),
+            way: format!("{}豁免", super::srd5::ability_name(ability)),
+            formula: format!("d20{bonus:+}"),
+            dice: vec![die],
+            modifier: bonus + extra,
+            total,
+            dc: Some(dc),
+            success: Some(ok),
+            edge: None,
+            versus: None,
+        });
+        ok
+    }
+
+    /// 施一个法术。环位不够、够不着、对象不对的退回去，不耗环位。
+    fn cast(
+        &mut self,
+        i: usize,
+        (id, slot, target): (&str, u32, Option<usize>),
+        dice: &mut Dice,
+        rolls: &mut Vec<DiceRoll>,
+        at: f64,
+    ) -> Result<Vec<String>> {
+        let Some(spell) = self.fighters[i].spells.iter().find(|s| s.id == id).cloned() else {
+            let known: Vec<&str> = self.fighters[i]
+                .spells
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect();
+            return Err(bad(format!(
+                "你没有准备「{id}」：准备了的是 {}",
+                if known.is_empty() {
+                    "（没有法术）".to_string()
+                } else {
+                    known.join("、")
+                }
+            )));
+        };
+        if spell.rest_only {
+            return Err(bad(format!("{}要花十分钟，打着的时候施不了", spell.name)));
+        }
+        // 戏法不耗环位；别的法术用不低于它环数的环位
+        let slot = if spell.level == 0 {
+            0
+        } else {
+            slot.max(spell.level)
+        };
+        if slot > 0
+            && self.fighters[i]
+                .slots
+                .get(slot as usize - 1)
+                .is_none_or(|n| *n == 0)
+        {
+            return Err(bad(format!("{slot} 环的法术位用完了")));
+        }
+        let me = self.fighters[i].zone;
+        let up = slot.saturating_sub(spell.level);
+        let who = |fight: &Fight, want_foe: bool| -> Result<usize> {
+            let t =
+                target.ok_or_else(|| bad(format!("{}要指一个对象：target 填编号", spell.name)))?;
+            let f = fight
+                .fighters
+                .get(t)
+                .filter(|f| f.present())
+                .ok_or_else(|| bad("这个对象不在场"))?;
+            if fight.hostile(i, t) != want_foe {
+                return Err(bad(format!(
+                    "{}要对{}用",
+                    spell.name,
+                    if want_foe { "对手" } else { "自己人" }
+                )));
+            }
+            if spell.reach == Reach::Touch && f.zone != me {
+                return Err(bad(format!(
+                    "{}要碰到对方：{} 在{}，先走到同一块区域",
+                    spell.name, f.name, fight.zones[f.zone]
+                )));
+            }
+            Ok(t)
+        };
+        let caster = self.fighters[i].name.clone();
+        let mut lines = Vec::new();
+        match spell.kind {
+            SpellKind::Attack => {
+                let t = who(self, true)?;
+                let crowded = self.enemies(i).iter().any(|&k| self.fighters[k].zone == me);
+                for _ in 0..spell.rays.max(1) {
+                    if !self.fighters[t].present() {
+                        break;
+                    }
+                    let up_edge = self.fighters[t].marked || self.fighters[t].held.is_some();
+                    let down_edge =
+                        self.fighters[t].dodging || (spell.reach == Reach::Ranged && crowded);
+                    self.fighters[t].marked = false;
+                    let edge = match (up_edge, down_edge) {
+                        (true, false) => Some(Edge::Advantage),
+                        (false, true) => Some(Edge::Disadvantage),
+                        _ => None,
+                    };
+                    let first = dice.roll(20);
+                    let (thrown, kept) = match edge {
+                        None => (vec![first], first),
+                        Some(e) => {
+                            let second = dice.roll(20);
+                            let kept = if e == Edge::Advantage {
+                                first.max(second)
+                            } else {
+                                first.min(second)
+                            };
+                            (vec![first, second], kept)
+                        }
+                    };
+                    let bless = if self.fighters[i].blessed {
+                        dice.roll(4) as i32
+                    } else {
+                        0
+                    };
+                    let total = kept as i32 + spell.bonus + bless;
+                    let ac = self.fighters[t].ac;
+                    let crit = kept == 20;
+                    let hit = kept != 1 && (crit || total >= ac as i32);
+                    rolls.push(DiceRoll {
+                        at,
+                        seat: self.fighters[i].seat.map_or(0, |s| s as u32 + 1),
+                        what: format!("{caster} 对 {} 施{}", self.fighters[t].name, spell.name),
+                        way: "法术攻击".into(),
+                        formula: format!("d20{:+}", spell.bonus),
+                        dice: thrown,
+                        modifier: spell.bonus + bless,
+                        total,
+                        dc: Some(ac),
+                        success: Some(hit),
+                        edge,
+                        versus: None,
+                    });
+                    let head = format!(
+                        "{caster} 对 {} 施{}：掷 d20 得 {kept}，共 {total}，对护甲 {ac}",
+                        self.fighters[t].name, spell.name
+                    );
+                    if !hit {
+                        lines.push(format!("{head}：没打中"));
+                        continue;
+                    }
+                    let count = (spell.dice.0 + spell.upcast_dice * up) * if crit { 2 } else { 1 };
+                    let damage = (roll_dice(dice, (count, spell.dice.1)).iter().sum::<u32>()
+                        as i32
+                        + spell.plus)
+                        .max(1);
+                    let after = self.hurt(t, damage, crit, dice, rolls, at);
+                    if spell.marks && self.fighters[t].present() {
+                        self.fighters[t].marked = true;
+                    }
+                    lines.push(format!(
+                        "{head}：{}，伤害 {damage}。{after}",
+                        if crit { "重击" } else { "命中" }
+                    ));
+                }
+            }
+            SpellKind::Auto => {
+                let t = who(self, true)?;
+                let darts = spell.rays.max(1) + spell.upcast_rays * up;
+                let damage: i32 = (0..darts)
+                    .map(|_| roll_dice(dice, spell.dice).iter().sum::<u32>() as i32 + spell.plus)
+                    .sum();
+                let after = self.hurt(t, damage, false, dice, rolls, at);
+                lines.push(format!(
+                    "{caster} 施{}，{darts} 发都打中 {}：伤害 {damage}。{after}",
+                    spell.name, self.fighters[t].name
+                ));
+            }
+            SpellKind::Save => {
+                let ability = spell.save.clone().unwrap_or_else(|| "dex".into());
+                let targets: Vec<usize> = if spell.reach == Reach::Zone {
+                    // 罩住一块区域：自己这块或隔壁那块里所有的对手
+                    let zone = match target {
+                        Some(t) => self.fighters.get(t).map_or(me, |f| f.zone),
+                        None => me,
+                    };
+                    if zone.abs_diff(me) > 1 {
+                        return Err(bad(format!("{}只够得着你这块和隔壁的区域", spell.name)));
+                    }
+                    self.enemies(i)
+                        .into_iter()
+                        .filter(|&k| self.fighters[k].zone == zone)
+                        .collect()
+                } else {
+                    vec![who(self, true)?]
+                };
+                if targets.is_empty() {
+                    return Err(bad("那块区域里没有对手"));
+                }
+                let count = spell.dice.0 + spell.upcast_dice * up;
+                let full = (roll_dice(dice, (count, spell.dice.1)).iter().sum::<u32>() as i32
+                    + spell.plus)
+                    .max(1);
+                for t in targets {
+                    let name = self.fighters[t].name.clone();
+                    let saved = self.save(t, (&ability, spell.dc), &spell.name, dice, rolls, at);
+                    let damage = match (saved, spell.half) {
+                        (false, _) => full,
+                        (true, true) => full / 2,
+                        (true, false) => 0,
+                    };
+                    let verdict = if saved { "豁免过了" } else { "没躲开" };
+                    if damage == 0 {
+                        lines.push(format!(
+                            "{caster} 的{}罩向 {name}：{verdict}，没受伤",
+                            spell.name
+                        ));
+                    } else {
+                        let after = self.hurt(t, damage, false, dice, rolls, at);
+                        lines.push(format!(
+                            "{caster} 的{}罩向 {name}（难度 {}）：{verdict}，伤害 {damage}。{after}",
+                            spell.name, spell.dc
+                        ));
+                    }
+                }
+            }
+            SpellKind::Heal => {
+                let t = who(self, false)?;
+                let amount = roll_dice(dice, (spell.dice.0 + spell.upcast_dice * up, spell.dice.1))
+                    .iter()
+                    .sum::<u32>() as i32
+                    + spell.plus;
+                lines.push(format!(
+                    "{caster} 施{}：{}",
+                    spell.name,
+                    self.heal(t, amount)
+                ));
+            }
+            SpellKind::Bless => {
+                let allies: Vec<usize> = (0..self.fighters.len())
+                    .filter(|&k| !self.hostile(i, k) && self.fighters[k].active())
+                    .take(3)
+                    .collect();
+                if self.fighters[i].focus.is_some() {
+                    lines.push(self.drop_focus(i));
+                }
+                for &k in &allies {
+                    self.fighters[k].blessed = true;
+                }
+                let names: Vec<String> = allies
+                    .iter()
+                    .map(|&k| self.fighters[k].name.clone())
+                    .collect();
+                self.fighters[i].focus = Some((spell.id.clone(), allies));
+                lines.push(format!(
+                    "{caster} 施{}（专注）：{} 的攻击和豁免各多掷一颗 d4",
+                    spell.name,
+                    names.join("、")
+                ));
+            }
+            SpellKind::Hold => {
+                let t = who(self, true)?;
+                if !self.fighters[t].humanoid {
+                    return Err(bad(format!(
+                        "{}只对人形生物有用，{} 不是",
+                        spell.name, self.fighters[t].name
+                    )));
+                }
+                if self.fighters[i].focus.is_some() {
+                    lines.push(self.drop_focus(i));
+                }
+                let name = self.fighters[t].name.clone();
+                if self.save(t, ("wis", spell.dc), &spell.name, dice, rolls, at) {
+                    lines.push(format!(
+                        "{caster} 对 {name} 施{}：{name} 挣脱了",
+                        spell.name
+                    ));
+                } else {
+                    self.fighters[t].held = Some((i, spell.dc));
+                    self.fighters[i].focus = Some((spell.id.clone(), vec![t]));
+                    lines.push(format!(
+                        "{caster} 对 {name} 施{}（专注）：{name} 动弹不得，打他的有优势，近身打中都算重击",
+                        spell.name
+                    ));
+                }
+            }
+        }
+        if slot > 0 {
+            self.fighters[i].slots[slot as usize - 1] -= 1;
+        }
+        Ok(lines)
+    }
+
+    /// 两个角色动手：就在眼前这一块，打到一方倒下为止（倒下的不再挨打，打完缓过来）。
+    pub fn duel(a: Member, b: Member, dice: &mut Dice) -> Self {
+        let title = format!("{} 和 {} 动手", a.name, b.name);
+        let mut fighters: Vec<Fighter> = [a, b]
+            .into_iter()
+            .enumerate()
+            .map(|(side, m)| fighter_of(m, 0, side as u8))
+            .collect();
+        for f in &mut fighters {
+            f.initiative = dice.roll(20) as i32 + f.dex;
+        }
+        let order = if (fighters[1].initiative, fighters[1].dex)
+            > (fighters[0].initiative, fighters[0].dex)
+        {
+            vec![1, 0]
+        } else {
+            vec![0, 1]
+        };
+        Self {
+            id: "duel".into(),
+            title,
+            zones: vec!["跟前".into(), "几步外".into()],
+            round: 1,
+            order,
+            at: 0,
+            fighters,
+            outcome: None,
+        }
     }
 
     /// 走一步到隔壁那块：没撤步的话，原来那块里还站着、有近身攻击、反应没用掉的敌人各打一下借机攻击；
@@ -644,7 +1270,29 @@ impl Fight {
                     return Err(bad("身边还有对手，脱不了身：先撤步走开，或者把他打倒"));
                 }
             }
-            Deed::Dodge | Deed::Disengage | Deed::Pass => {}
+            Deed::SecondWind => {
+                if !self.fighters[i].second_wind {
+                    return Err(bad("回气用过了，要好好休息一晚才能再用"));
+                }
+            }
+            Deed::Dodge | Deed::Disengage | Deed::Pass | Deed::Cast { .. } => {}
+        }
+        // 施法先试一遍：不合规矩的退回去，不走那一步、不耗环位
+        if let Deed::Cast {
+            spell,
+            slot,
+            target,
+        } = &order.deed
+        {
+            let mut trial = self.clone();
+            trial.fighters[i].zone = after;
+            trial.cast(
+                i,
+                (spell, *slot, *target),
+                &mut dice.clone(),
+                &mut Vec::new(),
+                at,
+            )?;
         }
         let mut lines = Vec::new();
         // 撤步要在走之前生效
@@ -679,6 +1327,17 @@ impl Fight {
             }
             Deed::Disengage => {}
             Deed::Pass => lines.push(format!("{name} 这一回合没有出手")),
+            Deed::Cast {
+                spell,
+                slot,
+                target,
+            } => lines.extend(self.cast(i, (spell, *slot, *target), dice, rolls, at)?),
+            Deed::SecondWind => {
+                let f = &self.fighters[i];
+                let amount = dice.roll(10) as i32 + f.level as i32;
+                self.fighters[i].second_wind = false;
+                lines.push(format!("{name} 回气：{}", self.heal(i, amount)));
+            }
         }
         Ok(lines)
     }
@@ -740,8 +1399,8 @@ impl Fight {
 
     /// 这一回合结束：看分没分出胜负，没有就轮到下一个；转完一圈是新的一轮。
     pub fn end_turn(&mut self) {
-        let foes = self.fighters.iter().any(|f| !f.party() && f.active());
-        let party = self.fighters.iter().any(|f| f.party() && f.active());
+        let foes = self.fighters.iter().any(|f| f.side == 1 && f.active());
+        let party = self.fighters.iter().any(|f| f.side == 0 && f.active());
         self.outcome = match (party, foes) {
             (_, false) => Some(Outcome::Won),
             (false, true) => Some(Outcome::Lost),
@@ -810,6 +1469,43 @@ impl Fight {
             me.attack.dice.1,
             me.attack.plus
         )];
+        if !me.spells.is_empty() {
+            let slots: Vec<String> = me
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(k, n)| format!("{} 环剩 {n}", k + 1))
+                .collect();
+            let spells: Vec<String> = me
+                .spells
+                .iter()
+                .filter(|s| !s.rest_only)
+                .map(|s| {
+                    format!(
+                        "{}={}（{}）",
+                        s.id,
+                        s.name,
+                        if s.level == 0 {
+                            "戏法，不耗法术位".to_string()
+                        } else {
+                            format!("{} 环", s.level)
+                        }
+                    )
+                })
+                .collect();
+            lines.push(format!(
+                "法术位：{}。能施的法术：{}",
+                if slots.is_empty() {
+                    "没有".to_string()
+                } else {
+                    slots.join("，")
+                },
+                spells.join("；")
+            ));
+        }
+        if me.second_wind {
+            lines.push("回气还能用一次（second_wind：回 1d10 + 等级点生命）。".to_string());
+        }
         for (z, zone) in self.zones.iter().enumerate() {
             let who: Vec<String> = (0..self.fighters.len())
                 .filter(|&k| self.fighters[k].zone == z && self.fighters[k].present())
@@ -910,6 +1606,20 @@ fn blank() -> Fighter {
         stable: false,
         dead: false,
         fled: false,
+        side: 0,
+        creature: None,
+        humanoid: false,
+        level: 1,
+        slots: Vec::new(),
+        spells: Vec::new(),
+        save_mods: (0, 0, 0),
+        focus: None,
+        blessed: false,
+        held: None,
+        marked: false,
+        sneak: 0,
+        sneaked: false,
+        second_wind: false,
     }
 }
 
@@ -951,6 +1661,12 @@ mod tests {
                 ranged,
             },
             dex: 1,
+            level: 1,
+            slots: vec![],
+            spells: vec![],
+            save_mods: (1, 1, 1),
+            sneak: 0,
+            second_wind: false,
         }
     }
 
@@ -1013,14 +1729,51 @@ mod tests {
     }
 
     fn play(enc: &StorylineEncounter, seed: u32) -> Fight {
+        play_with(enc, seed, party())
+    }
+
+    /// 会法术的人的打法：有同伴倒下就治，不然有法术位就放最厉害的，再不然放戏法
+    fn caster(fight: &Fight, i: usize) -> Option<Order> {
+        let me = &fight.fighters[i];
+        let has_slot = |s: &Spell| s.level == 0 || me.slots.get(s.level as usize - 1) > Some(&0);
+        let cast = |s: &Spell, target: usize| Order {
+            move_to: None,
+            deed: Deed::Cast {
+                spell: s.id.clone(),
+                slot: s.level,
+                target: Some(target),
+            },
+        };
+        let down = (0..fight.fighters.len()).find(|&k| {
+            !fight.hostile(i, k) && fight.fighters[k].present() && fight.fighters[k].hp <= 0
+        });
+        let heal = me
+            .spells
+            .iter()
+            .find(|s| s.kind == SpellKind::Heal && has_slot(s));
+        if let (Some(k), Some(s)) = (down, heal) {
+            return Some(cast(s, k));
+        }
+        let weakest = fight
+            .enemies(i)
+            .into_iter()
+            .min_by_key(|&k| fight.fighters[k].hp)?;
+        me.spells
+            .iter()
+            .filter(|s| s.kind != SpellKind::Heal && has_slot(s))
+            .max_by_key(|s| s.level)
+            .map(|s| cast(s, weakest))
+    }
+
+    fn play_with(enc: &StorylineEncounter, seed: u32, members: Vec<Member>) -> Fight {
         let mut dice = Dice::new(seed);
         let mut rolls = Vec::new();
-        let mut fight = Fight::open(enc, party(), &mut dice);
+        let mut fight = Fight::open(enc, members, &mut dice);
         while let Some(i) = fight.up() {
             let (_, can) = fight.start_turn(i, &mut dice, &mut rolls, 0.0);
             if can {
                 if fight.fighters[i].party() {
-                    let order = simple(&fight, i);
+                    let order = caster(&fight, i).unwrap_or_else(|| simple(&fight, i));
                     fight
                         .party_turn(i, &order, &mut dice, &mut rolls, 0.0)
                         .unwrap();
@@ -1031,6 +1784,194 @@ mod tests {
             fight.end_turn();
         }
         fight
+    }
+
+    fn spell(id: &str, level: u32, kind: SpellKind, reach: Reach, dice: (u32, u32)) -> Spell {
+        Spell {
+            id: id.into(),
+            name: id.into(),
+            level,
+            kind,
+            reach,
+            dice,
+            plus: 0,
+            save: None,
+            half: false,
+            rays: 0,
+            upcast_dice: 0,
+            upcast_rays: 0,
+            concentration: false,
+            marks: false,
+            rest_only: false,
+            bonus: 5,
+            dc: 13,
+        }
+    }
+
+    /// 法术的规矩：戏法不耗环位，别的耗一个、用完了退回去；必中的不掷攻击骰；摸得着才治得了，昏迷的人治了就醒；
+    /// 专注的法术挨打后体质豁免没过就断，罩着的效果一起没；定身只对人形生物，被定住的轮到时动不了；
+    /// 偷袭一回合只加一次；回气一次，用过就没有。
+    #[test]
+    fn spells_spend_slots_hold_concentration_and_class_features_fire_once() {
+        let enc = encounter(&[("thug", 1), ("wolf", 1)]);
+        let mut dice = Dice::new(11);
+        let mut rolls = Vec::new();
+        let mut members = party();
+        let mut missile = spell("missile", 1, SpellKind::Auto, Reach::Ranged, (1, 4));
+        missile.plus = 1;
+        missile.rays = 3;
+        let mut cure = spell("cure", 1, SpellKind::Heal, Reach::Touch, (1, 8));
+        cure.plus = 3;
+        let mut bless = spell("bless", 1, SpellKind::Bless, Reach::Ranged, (1, 4));
+        bless.concentration = true;
+        let mut hold = spell("hold", 2, SpellKind::Hold, Reach::Ranged, (0, 0));
+        hold.concentration = true;
+        members[2].slots = vec![3, 2];
+        members[2].spells = vec![
+            spell("bolt", 0, SpellKind::Attack, Reach::Ranged, (1, 10)),
+            missile,
+            cure,
+            bless,
+            hold,
+        ];
+        members[1].sneak = 1;
+        members[0].second_wind = true;
+        let mut fight = Fight::open(&enc, members, &mut dice);
+        let (thug, wolf) = (4, 5);
+        fight.fighters[thug].hp = 200;
+        fight.fighters[thug].max_hp = 200;
+        let cast = |spell: &str, slot: u32, target: Option<usize>| Order {
+            move_to: None,
+            deed: Deed::Cast {
+                spell: spell.into(),
+                slot,
+                target,
+            },
+        };
+        // 必中：三发各 d4+1，不掷攻击骰，耗一个一环位
+        fight
+            .party_turn(
+                2,
+                &cast("missile", 1, Some(thug)),
+                &mut dice,
+                &mut rolls,
+                0.0,
+            )
+            .unwrap();
+        let lost = 200 - fight.fighters[thug].hp;
+        assert!((6..=15).contains(&lost), "{lost}");
+        assert!(rolls.is_empty());
+        assert_eq!(fight.fighters[2].slots, vec![2, 2]);
+        // 戏法不耗环位；没准备的法术、用完的环位退回去，什么都不动
+        fight
+            .party_turn(2, &cast("bolt", 0, Some(thug)), &mut dice, &mut rolls, 0.0)
+            .unwrap();
+        assert_eq!((rolls.len(), &fight.fighters[2].slots), (1, &vec![2, 2]));
+        assert!(fight
+            .party_turn(
+                2,
+                &cast("fireball", 3, Some(thug)),
+                &mut dice,
+                &mut rolls,
+                0.0
+            )
+            .is_err());
+        fight.fighters[2].slots[0] = 0;
+        let before = fight.fighters[thug].hp;
+        assert!(fight
+            .party_turn(
+                2,
+                &cast("missile", 1, Some(thug)),
+                &mut dice,
+                &mut rolls,
+                0.0
+            )
+            .is_err());
+        // 没有一环位了：用二环位施，多一发
+        fight
+            .party_turn(
+                2,
+                &cast("missile", 2, Some(thug)),
+                &mut dice,
+                &mut rolls,
+                0.0,
+            )
+            .unwrap();
+        assert_eq!(fight.fighters[2].slots, vec![0, 1]);
+        assert!(fight.fighters[thug].hp < before);
+        // 治疗要碰到：隔一块的治不了、不耗环位；同一块昏迷的同伴治了就醒
+        fight.fighters[2].slots = vec![3, 2];
+        fight.fighters[0].zone = 1;
+        fight.fighters[0].hp = 0;
+        fight.fighters[0].prone = true;
+        assert!(fight
+            .party_turn(2, &cast("cure", 1, Some(0)), &mut dice, &mut rolls, 0.0)
+            .is_err());
+        assert!(fight
+            .party_turn(2, &cast("cure", 1, Some(thug)), &mut dice, &mut rolls, 0.0)
+            .is_err());
+        assert_eq!(fight.fighters[2].slots, vec![3, 2]);
+        fight.fighters[0].zone = 0;
+        let lines = fight
+            .party_turn(2, &cast("cure", 1, Some(0)), &mut dice, &mut rolls, 0.0)
+            .unwrap();
+        assert!(lines[0].contains("醒了过来"), "{lines:?}");
+        assert!((4..=11).contains(&fight.fighters[0].hp));
+        // 祝福是专注：施法者挨了打、体质豁免没过，祝福就断
+        fight
+            .party_turn(2, &cast("bless", 1, None), &mut dice, &mut rolls, 0.0)
+            .unwrap();
+        assert!(fight.fighters[0].blessed && fight.fighters[2].blessed);
+        fight.fighters[2].save_mods.1 = -30;
+        let line = fight.hurt(2, 2, false, &mut dice, &mut rolls, 0.0);
+        assert!(line.contains("断了"), "{line}");
+        assert!(fight.fighters[2].focus.is_none());
+        assert!(fight.fighters.iter().all(|f| !f.blessed));
+        // 定身：狼不是人形；打手感知豁免没过就动不了，施法者专注一断就松开
+        assert!(fight
+            .party_turn(2, &cast("hold", 2, Some(wolf)), &mut dice, &mut rolls, 0.0)
+            .is_err());
+        fight.fighters[thug].save_mods.2 = -30;
+        fight
+            .party_turn(2, &cast("hold", 2, Some(thug)), &mut dice, &mut rolls, 0.0)
+            .unwrap();
+        assert_eq!(fight.fighters[thug].held, Some((2, 13)));
+        let (_, can) = fight.start_turn(thug, &mut dice, &mut rolls, 0.0);
+        assert!(!can);
+        fight.hurt(2, 2, false, &mut dice, &mut rolls, 0.0);
+        assert!(fight.fighters[thug].held.is_none());
+        // 偷袭：目标身边有同伴，一回合里打中的头一下多掷 d6，第二下没有
+        fight.fighters[0].zone = 1;
+        fight.fighters[1].zone = 1;
+        fight.fighters[thug].ac = 1;
+        let mut hits = Vec::new();
+        while hits.len() < 2 {
+            let line = fight.strike(1, thug, &mut dice, &mut rolls, 0.0, "");
+            if !line.contains("没打中") {
+                hits.push(line);
+            }
+        }
+        assert!(
+            hits[0].contains("偷袭") && !hits[1].contains("偷袭"),
+            "{hits:?}"
+        );
+        // 回气：回 1d10 + 等级，只有一次
+        fight.fighters[0].hp = 1;
+        let wind = Order {
+            move_to: None,
+            deed: Deed::SecondWind,
+        };
+        fight
+            .party_turn(0, &wind, &mut dice, &mut rolls, 0.0)
+            .unwrap();
+        assert!((3..=12).contains(&fight.fighters[0].hp));
+        assert!(fight
+            .party_turn(0, &wind, &mut dice, &mut rolls, 0.0)
+            .is_err());
+        // 两个人动手：各算一边，站在同一块
+        let duel = Fight::duel(party().remove(0), party().remove(1), &mut dice);
+        assert!(duel.hostile(0, 1) && duel.fighters[0].zone == duel.fighters[1].zone);
+        assert_eq!(duel.enemies(0), vec![1]);
     }
 
     /// 规则数据每一项都写着出处；剧本里不合规的遭遇战开不了。
@@ -1219,5 +2160,36 @@ mod tests {
         assert!((0.15..=0.85).contains(&hard), "四个强盗加一个打手：{hard}");
         assert!(deadly < 0.05, "八个打手：{deadly}");
         assert!(easy > hard && hard > deadly);
+        // 同一场难打的架，后排两个人换成牧师和法师（各两个一环位）：赢得更多，可也不是稳赢
+        let casters = || {
+            let mut members = party();
+            let mut heal = spell("word", 1, SpellKind::Heal, Reach::Ranged, (1, 4));
+            heal.plus = 3;
+            let mut flame = spell("flame", 0, SpellKind::Save, Reach::Ranged, (1, 8));
+            flame.save = Some("dex".into());
+            let mut missile = spell("missile", 1, SpellKind::Auto, Reach::Ranged, (1, 4));
+            missile.plus = 1;
+            missile.rays = 3;
+            members[2].slots = vec![2];
+            members[2].spells = vec![heal, flame];
+            members[3].slots = vec![2];
+            members[3].spells = vec![
+                missile,
+                spell("bolt", 0, SpellKind::Attack, Reach::Ranged, (1, 10)),
+            ];
+            members
+        };
+        let enc = encounter(&[
+            ("bandit", 1),
+            ("bandit", 1),
+            ("bandit", 2),
+            ("bandit", 2),
+            ("thug", 2),
+        ]);
+        let wins = (1..=1000u32)
+            .filter(|&seed| play_with(&enc, seed, casters()).outcome == Some(Outcome::Won))
+            .count();
+        let magic = wins as f64 / 1000.0;
+        assert!(magic > hard && magic < 0.98, "带法术 {magic}，不带 {hard}");
     }
 }

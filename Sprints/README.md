@@ -20,7 +20,20 @@ Six sprints, one folder each. Every sprint runs the same loop:
 | 5 | Agent memory | SQLite FTS5 word index (Chinese-capable), importance · recency · relevance ranking, "dreaming" while asleep |
 | 6 | Memory UI, hardening, release | Dreams visible in the memory page, cross-feature regression, docs and wiki brought up to date, `dev` ready for `main` |
 
-**Status (2026-11-11):** all six sprints are merged into `dev`; each `sprint-N/report.md` says what shipped, how it was checked, and what was left. `main` is untouched.
+**Status (2026-11-11):** all six sprints are merged into `dev` and from there into `main`; each `sprint-N/report.md` says what shipped, how it was checked, and what was left.
+
+## Second roadmap: fifth-edition rules (sprints 7–12)
+
+An optional ruleset on the storyline mode, built from SRD 5.1. The plan, scope and decisions are in `ruleset-5e/plan.md`.
+
+| Sprint | Theme | State |
+| --- | --- | --- |
+| 7 | Ruleset framework, dice, scripted checks | merged into `dev` |
+| 8 | Classes, saves, contests, advantage, passive checks, help | merged into `dev` |
+| 9 | Combat: initiative, turns, attacks, death saves | merged into `dev` |
+| 10 | Magic, long rest, experience and levels, duels | merged into `dev` |
+| 11 | Model narrator, adventure drafting in the story editor | planned |
+| 12 | Playtest, balance, cost report, release notes | planned |
 
 ## Decisions taken with the product owner (2026-11-11)
 
