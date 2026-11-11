@@ -131,9 +131,14 @@ impl Runtime {
                 day_hours,
                 rules,
             },
-            GameModeChoice::Storyline { seed, script } => GameModeChoice::Storyline {
+            GameModeChoice::Storyline {
+                seed,
+                script,
+                ruleset,
+            } => GameModeChoice::Storyline {
                 seed: roll(seed),
                 script,
+                ruleset,
             },
         });
         let result = self
@@ -162,10 +167,17 @@ impl Runtime {
                     Some(GameModeChoice::Swordholder { .. }) => {
                         "执剑人之夜已打开：天亮开局，钟点和环节照这一局改过的规则走".into()
                     }
-                    Some(GameModeChoice::Storyline { script, .. }) => format!(
-                        "故事「{}」已打开：{} 个节拍到点发生，角色自己决定怎么做",
+                    Some(GameModeChoice::Storyline {
+                        script, ruleset, ..
+                    }) => format!(
+                        "故事「{}」已打开：{} 个节拍到点发生，角色自己决定怎么做{}",
                         script.title.trim(),
-                        script.beats.len()
+                        script.beats.len(),
+                        if ruleset.is_some() {
+                            "；开着第五版规则，检定由骰子定成败"
+                        } else {
+                            ""
+                        }
                     ),
                     None => "玩法已关掉，世界恢复原样".into(),
                 }),

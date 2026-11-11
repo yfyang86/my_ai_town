@@ -321,6 +321,8 @@ export function initStoryEditor(d: {
           type: 'number',
         })
       )
+    // 靠检定达成的（开着规则套件的故事才有）：编辑器还不排检定，照原样留着
+    else if (w.kind === 'check') how.push(el('p', `通过检定「${w.check}」时达成`))
     else
       how.push(
         seats(w.seats, (s) => (w.seats = s)),

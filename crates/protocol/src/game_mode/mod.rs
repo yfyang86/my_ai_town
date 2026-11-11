@@ -1,11 +1,16 @@
 //! 玩法（大逃杀的潮水圈、狼人杀、执剑人之夜……）在线上的形状。一个世界同时最多开一个玩法；没开时名册、设定里都没有
 //! 玩法的字段，给模型的观察里也没有那一栏。加一个玩法：在这个目录写它自己的类型，再在下面三个枚举里
 //! 各加一项（内核那边见 kernel 的 game_mode）。
+mod ruleset;
 mod storyline;
 mod swordholder;
 mod tide;
 mod werewolf;
 
+pub use ruleset::{
+    Abilities, CheckWay, DiceRoll, RulesetChoice, RulesetView, Srd5Sheet, StorylineCheck,
+    ABILITIES, SKILLS,
+};
 pub use storyline::{
     StorylineBeat, StorylineBeatState, StorylineBeatView, StorylineContext, StorylineLine,
     StorylineMilestone, StorylineMilestoneView, StorylineRole, StorylineScene, StorylineScript,
@@ -61,11 +66,14 @@ pub enum GameModeChoice {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         rules: Option<SwordholderRules>,
     },
-    /// 故事模式：整本剧本带进来；seed 留给以后要抽签的地方
+    /// 故事模式：整本剧本带进来；seed 定下骰子。ruleset 是可选的规则套件（角色卡、检定……），
+    /// 不带时故事里做什么都不掷骰，和没有规则套件时一字不差
     Storyline {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seed: Option<u32>,
         script: Box<StorylineScript>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ruleset: Option<RulesetChoice>,
     },
 }
 
@@ -105,4 +113,7 @@ pub struct GameModeAction {
     /// 为什么这么选：只给旁观的人看
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// 这项动作另外要的几个参数（用哪项技能、哪个法术……），开着的玩法要才有；没有时线上不出现
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub with: std::collections::BTreeMap<String, String>,
 }

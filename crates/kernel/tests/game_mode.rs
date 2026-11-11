@@ -6,12 +6,12 @@ use kernel::{
     Event, World,
 };
 use protocol::{
-    FactKind, GameModeAction, GameModeChoice, GameModeContext, GameModeView, GroupStatus,
-    PhysiologySwitches, StorylineBeat, StorylineBeatState, StorylineMilestone, StorylineRole,
-    StorylineScene, StorylineScript, StorylineView, StorylineWhen, SwordholderEnding,
-    SwordholderPhase, SwordholderRole, SwordholderRules, SwordholderView, TideCircle, TideFlare,
-    TideNewsKind, TidePhase, TideView, WerewolfOut, WerewolfPhase, WerewolfRole, WerewolfSide,
-    WerewolfView,
+    Abilities, CheckWay, FactKind, GameModeAction, GameModeChoice, GameModeContext, GameModeView,
+    GroupStatus, PhysiologySwitches, RulesetChoice, Srd5Sheet, StorylineBeat, StorylineBeatState,
+    StorylineCheck, StorylineMilestone, StorylineRole, StorylineScene, StorylineScript,
+    StorylineView, StorylineWhen, SwordholderEnding, SwordholderPhase, SwordholderRole,
+    SwordholderRules, SwordholderView, TideCircle, TideFlare, TideNewsKind, TidePhase, TideView,
+    WerewolfOut, WerewolfPhase, WerewolfRole, WerewolfSide, WerewolfView,
 };
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
@@ -737,6 +737,7 @@ fn lighthouse_script() -> StorylineScript {
             announce: format!("{title}开始了。"),
             brief: None,
             scene: None,
+            checks: vec![],
         };
     let milestone = |id: &str, title: &str, when: StorylineWhen, secret: bool| StorylineMilestone {
         id: id.into(),
@@ -831,6 +832,7 @@ fn storyline_fires_beats_runs_a_scene_tracks_milestones_and_ends() {
         w.set_game_mode(Some(&GameModeChoice::Storyline {
             seed: Some(9),
             script: Box::new(script),
+            ruleset: None,
         }))
     };
     let mut w = fresh();
@@ -902,6 +904,7 @@ fn storyline_fires_beats_runs_a_scene_tracks_milestones_and_ends() {
         target: None,
         text: Some("我先说".into()),
         reason: None,
+        with: Default::default(),
     };
     assert!(w.game_mode_act("r3", &early).is_err());
     mode_act(&mut w, "r1", "speak", None, Some("灯塔不能卖。"));
@@ -982,6 +985,243 @@ fn storyline_fires_beats_runs_a_scene_tracks_milestones_and_ends() {
     no_trace(&w);
 }
 
+fn sheet(class: &str, scores: [u32; 6], skills: &[&str]) -> Srd5Sheet {
+    let [str, dex, con, int, wis, cha] = scores;
+    Srd5Sheet {
+        class: class.into(),
+        level: 1,
+        abilities: Abilities {
+            str,
+            dex,
+            con,
+            int,
+            wis,
+            cha,
+        },
+        skills: skills.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+/// 灯塔的四张角色卡：战士（运动）、游荡者（巧手）、牧师（洞悉）、法师（调查）
+fn lighthouse_sheets() -> Vec<Srd5Sheet> {
+    vec![
+        sheet("fighter", [16, 12, 14, 10, 13, 8], &["athletics"]),
+        sheet("rogue", [8, 16, 12, 13, 10, 14], &["sleight_of_hand"]),
+        sheet("cleric", [13, 8, 14, 10, 16, 12], &["insight"]),
+        sheet("wizard", [8, 14, 12, 16, 13, 10], &["investigation"]),
+    ]
+}
+
+/// 第一个节拍上挂两项检定：撬门（1、2 号能试，力量·运动或敏捷·巧手，难度低到一定成）、
+/// 看懂旧账（谁都能试，智力·调查，难度高到一定不成）；撬开门是一个里程碑。
+fn script_with_checks() -> StorylineScript {
+    let way = |ability: &str, skill: Option<&str>| CheckWay {
+        ability: ability.into(),
+        skill: skill.map(str::to_owned),
+    };
+    let mut script = lighthouse_script();
+    script.beats[0].checks = vec![
+        StorylineCheck {
+            id: "door".into(),
+            title: "撬开塔门".into(),
+            detail: "塔门锁着，撬开才进得去".into(),
+            dc: 2,
+            seats: vec![1, 2],
+            ways: vec![
+                way("str", Some("athletics")),
+                way("dex", Some("sleight_of_hand")),
+            ],
+        },
+        StorylineCheck {
+            id: "ledger".into(),
+            title: "看懂旧账".into(),
+            detail: "账上的暗记要认得出来".into(),
+            dc: 30,
+            seats: vec![],
+            ways: vec![way("int", Some("investigation"))],
+        },
+    ];
+    script.milestones.push(StorylineMilestone {
+        id: "entered".into(),
+        title: "进了灯塔".into(),
+        detail: "有人撬开了塔门".into(),
+        when: StorylineWhen::Check {
+            check: "door".into(),
+        },
+        secret: false,
+    });
+    script
+}
+
+fn try_check(
+    w: &mut World,
+    id: &str,
+    check: &str,
+    way: Option<(&str, &str)>,
+) -> Result<String, String> {
+    let action = GameModeAction {
+        action: "check".into(),
+        target: Some(check.into()),
+        text: Some("试一试".into()),
+        reason: None,
+        with: way
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+    };
+    w.game_mode_act(id, &action).map_err(|e| e.to_string())
+}
+
+/// 故事开着第五版规则：角色卡对不上规则的开不了；节拍到了才有检定可试，每人看到的是自己的加值；
+/// 内核掷 d20 加上加值和难度比，算式和结果公布给所有人，通过的检定带着里程碑达成；
+/// 一人一次、没轮到的人和没给的试法都交不了；同一份存档读出来接着掷，点数一样；对人动手被规则拦下。
+/// 不开规则时，同一本带检定的剧本照常走：没有角色卡、没有检定、存档里没有规则的痕迹，动手也不拦。
+#[test]
+fn storyline_with_fifth_edition_rules_resolves_scripted_checks_with_dice() {
+    let people = [
+        ("r1", "阿塔", "loc_a"),
+        ("r2", "老镇", "loc_a"),
+        ("r3", "阿渔", "loc_a"),
+        ("r4", "远客", "loc_a"),
+    ];
+    let fresh = || {
+        let mut w = common::world_with(common::tiny_topology(), 7.0 * HOUR, &people);
+        w.set_physiology(PhysiologySwitches {
+            fullness: false,
+            energy: false,
+            water: false,
+            health: false,
+            weather: false,
+        });
+        w
+    };
+    let open = |w: &mut World, sheets: Option<Vec<Srd5Sheet>>| {
+        w.set_game_mode(Some(&GameModeChoice::Storyline {
+            seed: Some(9),
+            script: Box::new(script_with_checks()),
+            ruleset: sheets.map(|sheets| RulesetChoice::Srd5 { sheets }),
+        }))
+    };
+    let shove = |w: &mut World| {
+        common::run(
+            w,
+            "r3",
+            "shove",
+            json!({"intent":{"verb":"推搡"},"recipient":"r4"}),
+        )
+    };
+
+    // 不开规则：带检定的剧本照常走，什么都不多
+    let mut plain = fresh();
+    open(&mut plain, None).unwrap();
+    plain.step(1.1 * HOUR);
+    let c = story_context(&plain, "r1");
+    assert!(c.sheet.is_none() && c.checks.is_empty() && !c.actions.contains(&"check".into()));
+    assert!(storyline(&plain).ruleset.is_none());
+    // 靠检定达成的里程碑没开规则时哪里都不出现
+    assert!(storyline(&plain)
+        .milestones
+        .iter()
+        .all(|m| m.id != "entered"));
+    assert!(!plain.game_mode_takes_params());
+    assert!(!plain.game_mode_tool("r1").unwrap().contains("check"));
+    assert!(try_check(&mut plain, "r1", "door", Some(("skill", "athletics"))).is_err());
+    let saved = serde_json::to_value(plain.snapshot()).unwrap();
+    assert!(saved["game_mode"]["storyline"].get("rules").is_none());
+    assert!(shove(&mut plain).is_ok(), "不开规则时动手不拦");
+
+    // 角色卡对不上规则的开不了
+    let mut w = fresh();
+    let mut strong = lighthouse_sheets();
+    strong[0].abilities.str = 25;
+    assert!(open(&mut w, Some(strong)).is_err());
+    let mut unknown = lighthouse_sheets();
+    unknown[1].skills.push("lockpicking".into());
+    assert!(open(&mut w, Some(unknown)).is_err());
+    assert!(open(&mut w, Some(lighthouse_sheets()[..3].to_vec())).is_err());
+    assert!(w.game_mode().is_none());
+
+    open(&mut w, Some(lighthouse_sheets())).unwrap();
+    assert!(w.game_mode_takes_params());
+    assert!(w.game_mode_tool("r1").unwrap().contains("check"));
+    let c = story_context(&w, "r1");
+    assert!(c
+        .sheet
+        .as_deref()
+        .unwrap()
+        .starts_with("战士 1 级 · 力量 16(+3)"));
+    assert!(c.checks.is_empty(), "节拍还没到，没有检定可试");
+
+    w.step(1.1 * HOUR);
+    // 每人看到的是自己的加值：1 号运动 +5（力量 +3、熟练 +2），巧手只有敏捷的 +1
+    let c = story_context(&w, "r1");
+    assert!(c.actions.contains(&"check".into()));
+    assert!(
+        c.checks[0].contains("athletics（力量·运动 +5）"),
+        "{:?}",
+        c.checks
+    );
+    assert!(c.checks[0].contains("sleight_of_hand（敏捷·巧手 +1）"));
+    assert_eq!(story_context(&w, "r3").checks.len(), 1, "3 号试不了撬门");
+
+    // 两种试法没说用哪种、用了没给的试法、没轮到的人：都交不了，也不算试过
+    assert!(try_check(&mut w, "r1", "door", None).is_err());
+    assert!(try_check(&mut w, "r1", "door", Some(("skill", "stealth"))).is_err());
+    assert!(try_check(&mut w, "r3", "door", Some(("skill", "athletics"))).is_err());
+    // 1 号用运动撬门：d20+5 对难度 2，一定成；里程碑随之达成，记在他名下
+    let result = try_check(&mut w, "r1", "door", Some(("skill", "athletics"))).unwrap();
+    assert!(result.contains("成功"), "{result}");
+    let v = storyline(&w);
+    let roll = &v.ruleset.as_ref().unwrap().rolls[0];
+    assert_eq!(
+        (roll.seat, roll.formula.as_str(), roll.modifier),
+        (1, "d20+5", 5)
+    );
+    assert_eq!(roll.total, roll.dice[0] as i32 + 5);
+    assert_eq!((roll.dc, roll.success), (Some(2), Some(true)));
+    let entered = v.milestones.iter().find(|m| m.id == "entered").unwrap();
+    assert_eq!((entered.done, entered.by), (true, Some(1)));
+    let told = w.actor("r4").unwrap().journal.events_after(0);
+    assert!(told
+        .iter()
+        .any(|e| e.text.contains("撬开塔门") && e.text.contains("成功")));
+    // 门已经开了：别人不用再试
+    assert!(try_check(&mut w, "r2", "door", Some(("skill", "sleight_of_hand"))).is_err());
+
+    // 只有一种试法时不用填；法师调查 +5 对难度 30，一定不成；一人只能试一次
+    let result = try_check(&mut w, "r4", "ledger", None).unwrap();
+    assert!(result.contains("失败"), "{result}");
+    assert!(try_check(&mut w, "r4", "ledger", None).is_err());
+    assert!(!story_context(&w, "r4").actions.contains(&"check".into()));
+
+    // 同一份存档读出来接着掷，点数一样
+    let mut copy = common::restore(&w, fresh());
+    assert_eq!(storyline(&copy), storyline(&w));
+    for world in [&mut w, &mut copy] {
+        try_check(world, "r1", "ledger", None).unwrap();
+        try_check(world, "r3", "ledger", None).unwrap();
+    }
+    let rolls = |w: &World| storyline(w).ruleset.unwrap().rolls;
+    assert_eq!(rolls(&w), rolls(&copy));
+    assert_eq!(rolls(&w).len(), 4);
+    // 没熟练的人只有属性的加值：牧师智力 10，d20+0
+    assert_eq!(rolls(&w)[3].formula, "d20+0");
+
+    // 开着规则时对人动手被拦下，说明原因；别的事照常
+    let refused = shove(&mut w).unwrap_err().to_string();
+    assert!(refused.contains("第五版规则"), "{refused}");
+    assert!(common::run(
+        &mut w,
+        "r3",
+        "go",
+        json!({"intent":{"verb":"前往","locale":"loc_b"}})
+    )
+    .is_ok());
+
+    w.set_game_mode(None).unwrap();
+    no_trace(&w);
+}
+
 /// 交一项带 target 是文字（里程碑编号）的玩法动作
 fn mode_act_on(w: &mut World, id: &str, action: &str, target: &str, text: &str) {
     let action = GameModeAction {
@@ -989,6 +1229,7 @@ fn mode_act_on(w: &mut World, id: &str, action: &str, target: &str, text: &str) 
         target: Some(target.into()),
         text: Some(text.into()),
         reason: None,
+        with: Default::default(),
     };
     let result = w.game_mode_act(id, &action);
     assert!(result.is_ok(), "{id} 交 {action:?}：{result:?}");
@@ -1007,6 +1248,7 @@ fn mode_act(w: &mut World, id: &str, action: &str, target: Option<u32>, text: Op
         target: target.map(|t| t.to_string()),
         text: text.map(str::to_owned),
         reason: Some(format!("{id} 心里这么想")),
+        with: Default::default(),
     };
     let result = w.game_mode_act(id, &action);
     assert!(result.is_ok(), "{id} 交 {action:?}：{result:?}");

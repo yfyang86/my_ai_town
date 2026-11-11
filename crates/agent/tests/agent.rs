@@ -9,4 +9,5 @@ mod resident_notebook;
 mod resident_possession;
 mod resident_prompt;
 mod resident_reading;
+mod resident_ruleset;
 mod resident_runtime;

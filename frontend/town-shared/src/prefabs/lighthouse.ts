@@ -1,4 +1,4 @@
-import type { StorylineScript } from '../protocol'
+import type { Srd5Sheet, StorylineScript } from '../protocol'
 import type { Prefab, PrefabPersona } from '.'
 
 // 灯塔之约：故事模式的第一本剧本，手写的，也是「故事编辑器」写出来的东西的样子。
@@ -110,6 +110,21 @@ const CAST: PrefabPersona[] = [
   ),
 ]
 
+/** 开着第五版规则时的角色卡，按座号：守塔人、镇长、渔夫、买主、酒馆老板、学徒 */
+const sheet = (
+  cls: string,
+  [str, dex, con, int, wis, cha]: number[],
+  skills: string[]
+): Srd5Sheet => ({ class: cls, level: 1, abilities: { str, dex, con, int, wis, cha }, skills })
+const SHEETS: Srd5Sheet[] = [
+  sheet('fighter', [14, 10, 15, 10, 14, 8], ['athletics', 'survival']),
+  sheet('rogue', [8, 12, 12, 14, 10, 16], ['deception', 'persuasion']),
+  sheet('fighter', [16, 13, 14, 8, 12, 10], ['athletics', 'intimidation']),
+  sheet('wizard', [8, 12, 10, 15, 13, 15], ['persuasion', 'insight']),
+  sheet('cleric', [10, 10, 13, 12, 16, 13], ['insight', 'perception']),
+  sheet('rogue', [10, 15, 12, 14, 13, 8], ['investigation', 'sleight_of_hand']),
+]
+
 const script: StorylineScript = {
   title: '灯塔之约',
   premise:
@@ -164,6 +179,19 @@ const script: StorylineScript = {
       announce: '钟响了，广场上开始议事：镇长、守塔人和买主各说一段。',
       brief: '轮到你时把你的打算和理由说清楚，这是表决前唯一一次当着全镇说话。',
       scene: { speakers: [2, 1, 4], minutes: 15, chars: 300 },
+      checks: [
+        {
+          id: 'sway',
+          title: '说动围观的人',
+          detail: '议事散了以后，让广场上的人站到你这一边',
+          dc: 13,
+          seats: [1, 2, 4],
+          ways: [
+            { ability: 'cha', skill: 'persuasion' },
+            { ability: 'cha', skill: 'intimidation' },
+          ],
+        },
+      ],
     },
     {
       id: 'rumor',
@@ -174,6 +202,19 @@ const script: StorylineScript = {
       who: [3, 5],
       announce: '码头上传开一句话：镇上那笔债，不是修码头欠下的。',
       brief: '这句话和你有关：你想不想把它问清楚、说出来，自己拿主意。',
+      checks: [
+        {
+          id: 'ledger',
+          title: '看懂镇上的账',
+          detail: '从账本和旁人的话里对出那笔钱的去向',
+          dc: 13,
+          seats: [3, 5, 6],
+          ways: [
+            { ability: 'int', skill: 'investigation' },
+            { ability: 'wis', skill: 'insight' },
+          ],
+        },
+      ],
     },
     {
       id: 'vote',
@@ -193,6 +234,16 @@ const script: StorylineScript = {
       who: [1, 6],
       announce: '天黑了，到了往常点灯的时辰。',
       brief: '今晚这盏灯点不点，由你决定；点了就用 declare 说一声。',
+      checks: [
+        {
+          id: 'wick',
+          title: '修好灯芯',
+          detail: '老灯的灯芯受了潮，修好才点得着',
+          dc: 12,
+          seats: [1, 6],
+          ways: [{ ability: 'int' }, { ability: 'dex', skill: 'sleight_of_hand' }],
+        },
+      ],
     },
   ],
   milestones: [
@@ -220,6 +271,12 @@ const script: StorylineScript = {
       title: '灯塔下聚首',
       detail: '至少三个人同时到了灯塔',
       when: { kind: 'gather', place: '灯塔', count: 3 },
+    },
+    {
+      id: 'audited',
+      title: '账目对上了',
+      detail: '有人看懂了镇上的账',
+      when: { kind: 'check', check: 'ledger' },
     },
     {
       id: 'lit',
@@ -285,6 +342,21 @@ export const lighthouse: Prefab = {
   needs: { fullness: true, energy: true, water: true, health: true, weather: true },
   needsDefault: false,
   needsHint: { on: '会饿会渴会困', off: '一天只看这件事' },
-  options: [],
+  options: [
+    {
+      label: '规则',
+      choices: [
+        { value: 'none', label: '不掷骰', hint: '成不成全凭各人怎么说、怎么做' },
+        {
+          value: 'srd5',
+          label: '第五版规则',
+          hint: '每人一张角色卡；说动人、看懂账、点着灯要掷 d20 检定',
+        },
+      ],
+      initial: 'none',
+      field: 'ruleset',
+      values: { srd5: { kind: 'srd5', sheets: SHEETS } },
+    },
+  ],
   limits: { calls_per_day: 600, tokens_per_day: 4_000_000 },
 }

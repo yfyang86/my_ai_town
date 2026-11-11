@@ -1453,6 +1453,23 @@ fn storyline_script() -> StorylineScript {
                 minutes: 10,
                 chars: 200,
             }),
+            checks: vec![StorylineCheck {
+                id: "ledger".into(),
+                title: "翻出旧账".into(),
+                detail: "在镇公所的柜子里找到那本账".into(),
+                dc: 13,
+                seats: vec![1],
+                ways: vec![
+                    CheckWay {
+                        ability: "int".into(),
+                        skill: Some("investigation".into()),
+                    },
+                    CheckWay {
+                        ability: "dex".into(),
+                        skill: None,
+                    },
+                ],
+            }],
         }],
         milestones: vec![
             StorylineMilestone {
@@ -1481,6 +1498,15 @@ fn storyline_script() -> StorylineScript {
                 detail: "镇长当众承认了那笔债".into(),
                 when: StorylineWhen::Declare { seats: vec![2] },
                 secret: true,
+            },
+            StorylineMilestone {
+                id: "found".into(),
+                title: "旧账到手".into(),
+                detail: "有人翻出了旧账".into(),
+                when: StorylineWhen::Check {
+                    check: "ledger".into(),
+                },
+                secret: false,
             },
         ],
         ends_day: 1,
@@ -1572,6 +1598,25 @@ fn storyline_roster() -> ServerMsg {
             }],
             ended: true,
             epilogue: Some("雾散了。".into()),
+            ruleset: Some(RulesetView {
+                id: "srd5".into(),
+                sheets: vec![
+                    "战士 1 级 · 力量 16(+3) 敏捷 12(+1)".into(),
+                    "法师 1 级 · 智力 16(+3)".into(),
+                ],
+                rolls: vec![DiceRoll {
+                    at: 615.0,
+                    seat: 1,
+                    what: "翻出旧账".into(),
+                    way: "智力·调查".into(),
+                    formula: "d20+3".into(),
+                    dice: vec![14],
+                    modifier: 3,
+                    total: 17,
+                    dc: Some(13),
+                    success: Some(true),
+                }],
+            }),
         }));
     }
     roster
@@ -1639,6 +1684,36 @@ pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
                 game_mode: Some(GameModeChoice::Storyline {
                     seed: Some(9),
                     script: Box::new(storyline_script()),
+                    ruleset: Some(RulesetChoice::Srd5 {
+                        sheets: vec![
+                            Srd5Sheet {
+                                class: "fighter".into(),
+                                level: 1,
+                                abilities: Abilities {
+                                    str: 16,
+                                    dex: 12,
+                                    con: 14,
+                                    int: 10,
+                                    wis: 13,
+                                    cha: 8,
+                                },
+                                skills: vec!["athletics".into(), "intimidation".into()],
+                            },
+                            Srd5Sheet {
+                                class: "wizard".into(),
+                                level: 1,
+                                abilities: Abilities {
+                                    str: 8,
+                                    dex: 14,
+                                    con: 12,
+                                    int: 16,
+                                    wis: 13,
+                                    cha: 10,
+                                },
+                                skills: vec![],
+                            },
+                        ],
+                    }),
                 }),
             },
             ClientMsg::SetGameMode {

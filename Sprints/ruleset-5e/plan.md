@@ -105,10 +105,17 @@ The story editor gains an "adventure" switch: the model also drafts sheets that 
 | Balance | Simulation tests each sprint, before any real-model run |
 | Licence drift | A test that every data entry names an SRD section; review list of excluded names |
 
-## Decisions needed before sprint 7
+## Decisions (product owner, 2026-11-11)
 
-1. **Rules source** — SRD 5.1 (2014 rules, CC BY 4.0) *(recommended: mature, widely known)* or SRD 5.2 (2024 revision).
-2. **Adjudication** — scripted first, narrator added in sprint 11 *(recommended)*, or narrator from the start.
-3. **Positioning** — zones *(recommended)* or a true grid. A grid means giving residents coordinates, which is a much larger change to the kernel.
-4. **Scope of the first release** — the four classes and levels 1–3 above *(recommended)*, or wider and later.
-5. **Relation to storyline** — a layer on the storyline mode *(recommended)*, or a separate mode.
+All as recommended:
+
+1. **Rules source** — Dungeons & Dragons fifth edition, SRD 5.1 (CC BY 4.0).
+2. **Adjudication** — scripted checks first; the model narrator arrives in sprint 11.
+3. **Positioning** — zones, not a grid.
+4. **First release** — fighter, rogue, cleric, wizard; levels 1–3.
+5. **Relation to storyline** — a layer on the storyline mode.
+
+## Changes to this plan since it was written
+
+- **Creatures are combatants in the ruleset's own state, not bodies on the map** (decided at the start of sprint 7). Every actor in the kernel is a full resident or an avatar — population, roster, rendering and the host all assume it. Giving a goblin a body means touching all of those. In the first release creatures appear in the fight panel (initiative order, zone, hit points) and in what characters are told; a walking sprite is a later item.
+- **Sprint 7 also delivers scripted ability checks** with a minimal sheet (abilities, proficiency, skills). The framework extensions need a real mechanic to be tested through the full path, and checks are the smallest one. Sprint 8 keeps classes, saves, contests, advantage, the data files and the sheet UI.

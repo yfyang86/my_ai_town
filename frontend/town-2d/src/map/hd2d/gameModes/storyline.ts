@@ -70,7 +70,9 @@ export class StorylineLook implements GameModeLook {
       if (v.turn === s.seat) row.classList.add('turn')
       const face = residentPortrait(s.id, s.name)
       face.classList.add('st-face')
-      row.append(face, el('b', s.name), el('small', s.role))
+      // 开着规则套件：身份后面带上职业和等级（角色卡那一行的开头）
+      const sheet = v.ruleset?.sheets[s.seat - 1]?.split(' · ')[0]
+      row.append(face, el('b', s.name), el('small', sheet ? `${s.role} · ${sheet}` : s.role))
       if (s.gone) row.append(el('i', '不在了'))
       box.append(row)
     }
@@ -100,6 +102,27 @@ export class StorylineLook implements GameModeLook {
         item.append(el('i', m.done ? '✓' : m.missed ? '✕' : '·'), el('b', m.title))
         const who = this.seat(m.by)?.name
         item.append(el('small', m.done && m.text ? `${who ?? ''}：${m.text}` : m.detail))
+        list.append(item)
+      }
+      box.append(list)
+    }
+    // 开着规则套件：最近掷的几次骰，算式、点数和成败
+    const rolls = v.ruleset?.rolls?.slice(-4) ?? []
+    if (rolls.length) {
+      box.append(el('h4', '掷骰'))
+      const list = el('ul', '', 'st-rolls')
+      for (const r of rolls) {
+        const item = el('li', '', r.success ? 'done' : r.success === false ? 'missed' : '')
+        const sign = r.modifier < 0 ? '−' : '+'
+        item.append(
+          el('i', r.success ? '✓' : r.success === false ? '✕' : '·'),
+          el('b', `${this.seat(r.seat)?.name ?? ''} · ${r.what}`),
+          el(
+            'small',
+            `${r.way}：d20 掷出 ${r.dice.join('、')}，${sign}${Math.abs(r.modifier)} 共 ${r.total}` +
+              (r.dc === undefined ? '' : `，难度 ${r.dc}`)
+          )
+        )
         list.append(item)
       }
       box.append(list)

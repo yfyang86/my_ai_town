@@ -62,6 +62,10 @@ impl World {
             return Ok(previous);
         }
         a.check_new_group(command_id, revision, &drafts)?;
+        // 开着的玩法不让做的事（规则套件把该走规则的拦下来）整组不排；玩家的化身不归玩法管
+        if !player {
+            self.game_mode_judge(actor, &drafts)?;
+        }
         let accepted = self.check_group(actor, command_id, &drafts)?;
         let group = ActionGroup {
             id: command_id.into(),
