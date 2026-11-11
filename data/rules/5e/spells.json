@@ -1,0 +1,37 @@
+{
+  "source": "System Reference Document 5.1, Wizards of the Coast LLC, CC BY 4.0 — see licenses/SRD-5.1.txt",
+  "slots": {
+    "srd": "Classes > Cleric / Wizard > The Cleric / The Wizard table (spell slots per spell level)",
+    "by_level": [[2], [3], [4, 2]]
+  },
+  "casting": {
+    "srd": "Spellcasting; Classes > Cleric / Wizard > Spellcasting Ability",
+    "cleric": "wis",
+    "wizard": "int"
+  },
+  "spells": [
+    {"id": "fire_bolt", "name": "火焰箭", "srd": "Spells > Fire Bolt", "level": 0, "classes": ["wizard"], "kind": "attack", "reach": "ranged", "dice": [1, 10]},
+    {"id": "ray_of_frost", "name": "冷冻射线", "srd": "Spells > Ray of Frost", "level": 0, "classes": ["wizard"], "kind": "attack", "reach": "ranged", "dice": [1, 8]},
+    {"id": "sacred_flame", "name": "圣火术", "srd": "Spells > Sacred Flame", "level": 0, "classes": ["cleric"], "kind": "save", "reach": "ranged", "dice": [1, 8], "save": "dex", "half": false},
+    {"id": "magic_missile", "name": "魔法飞弹", "srd": "Spells > Magic Missile", "level": 1, "classes": ["wizard"], "kind": "auto", "reach": "ranged", "dice": [1, 4], "plus": 1, "rays": 3, "upcast_rays": 1},
+    {"id": "burning_hands", "name": "燃烧之手", "srd": "Spells > Burning Hands", "level": 1, "classes": ["wizard"], "kind": "save", "reach": "zone", "dice": [3, 6], "save": "dex", "half": true, "upcast_dice": 1},
+    {"id": "thunderwave", "name": "雷鸣波", "srd": "Spells > Thunderwave", "level": 1, "classes": ["wizard"], "kind": "save", "reach": "zone", "dice": [2, 8], "save": "con", "half": true, "upcast_dice": 1},
+    {"id": "guiding_bolt", "name": "指引之箭", "srd": "Spells > Guiding Bolt", "level": 1, "classes": ["cleric"], "kind": "attack", "reach": "ranged", "dice": [4, 6], "marks": true, "upcast_dice": 1},
+    {"id": "inflict_wounds", "name": "造成伤口", "srd": "Spells > Inflict Wounds", "level": 1, "classes": ["cleric"], "kind": "attack", "reach": "touch", "dice": [3, 10], "upcast_dice": 1},
+    {"id": "cure_wounds", "name": "治疗伤口", "srd": "Spells > Cure Wounds", "level": 1, "classes": ["cleric"], "kind": "heal", "reach": "touch", "dice": [1, 8], "add_mod": true, "upcast_dice": 1},
+    {"id": "healing_word", "name": "治愈真言", "srd": "Spells > Healing Word", "level": 1, "classes": ["cleric"], "kind": "heal", "reach": "ranged", "dice": [1, 4], "add_mod": true, "upcast_dice": 1},
+    {"id": "bless", "name": "祝福术", "srd": "Spells > Bless", "level": 1, "classes": ["cleric"], "kind": "bless", "reach": "ranged", "dice": [1, 4], "concentration": true},
+    {"id": "scorching_ray", "name": "灼热射线", "srd": "Spells > Scorching Ray", "level": 2, "classes": ["wizard"], "kind": "attack", "reach": "ranged", "dice": [2, 6], "rays": 3},
+    {"id": "hold_person", "name": "人类定身术", "srd": "Spells > Hold Person", "level": 2, "classes": ["cleric", "wizard"], "kind": "hold", "reach": "ranged", "save": "wis", "concentration": true},
+    {"id": "prayer_of_healing", "name": "医疗祷言", "srd": "Spells > Prayer of Healing", "level": 2, "classes": ["cleric"], "kind": "heal", "reach": "group", "dice": [2, 8], "add_mod": true, "rest_only": true}
+  ],
+  "experience": {
+    "srd": "Beyond 1st Level > Character Advancement; Monsters (experience points by challenge rating)",
+    "levels": [0, 300, 900],
+    "creatures": {"bandit": 25, "guard": 25, "cultist": 25, "giant_rat": 25, "mastiff": 25, "goblin": 50, "skeleton": 50, "zombie": 50, "wolf": 50, "thug": 100}
+  },
+  "features": {
+    "second_wind": {"srd": "Classes > Fighter > Second Wind", "dice": [1, 10]},
+    "sneak_attack": {"srd": "Classes > Rogue > Sneak Attack", "dice_by_level": [1, 1, 2]}
+  }
+}

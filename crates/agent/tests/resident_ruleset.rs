@@ -56,6 +56,7 @@ fn mode_action_takes_named_parameters_only_when_the_open_mode_asks_for_them() {
         weapon: None,
         armor: None,
         shield: false,
+        spells: vec![],
     };
     let mode_action = |ruleset: Option<RulesetChoice>| {
         let mut w = world();

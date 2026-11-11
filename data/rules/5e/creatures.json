@@ -1,16 +1,16 @@
 {
   "source": "System Reference Document 5.1, Wizards of the Coast LLC, CC BY 4.0 — see licenses/SRD-5.1.txt",
   "creatures": [
-    {"id": "bandit", "name": "强盗", "srd": "Monsters > NPCs > Bandit", "ac": 12, "hp": 11, "dex": 12, "attack": {"name": "弯刀", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}},
-    {"id": "guard", "name": "卫兵", "srd": "Monsters > NPCs > Guard", "ac": 16, "hp": 11, "dex": 12, "attack": {"name": "长矛", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}},
-    {"id": "thug", "name": "打手", "srd": "Monsters > NPCs > Thug", "ac": 11, "hp": 32, "dex": 11, "attack": {"name": "钉头锤", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": false}},
-    {"id": "cultist", "name": "邪教徒", "srd": "Monsters > NPCs > Cultist", "ac": 12, "hp": 9, "dex": 12, "attack": {"name": "弯刀", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}},
-    {"id": "goblin", "name": "地精", "srd": "Monsters > Goblin", "ac": 15, "hp": 7, "dex": 14, "attack": {"name": "短弓", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": true}},
-    {"id": "skeleton", "name": "骷髅", "srd": "Monsters > Skeletons > Skeleton", "ac": 13, "hp": 13, "dex": 14, "attack": {"name": "短剑", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": false}},
-    {"id": "zombie", "name": "僵尸", "srd": "Monsters > Zombies > Zombie", "ac": 8, "hp": 22, "dex": 6, "attack": {"name": "重击", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}},
-    {"id": "wolf", "name": "狼", "srd": "Monsters > Miscellaneous Creatures > Wolf", "ac": 13, "hp": 11, "dex": 15, "attack": {"name": "啃咬", "bonus": 4, "dice": [2, 4], "plus": 2, "ranged": false}},
-    {"id": "giant_rat", "name": "巨鼠", "srd": "Monsters > Miscellaneous Creatures > Giant Rat", "ac": 12, "hp": 7, "dex": 15, "attack": {"name": "啃咬", "bonus": 4, "dice": [1, 4], "plus": 2, "ranged": false}},
-    {"id": "mastiff", "name": "獒犬", "srd": "Monsters > Miscellaneous Creatures > Mastiff", "ac": 12, "hp": 5, "dex": 14, "attack": {"name": "啃咬", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}}
+    {"id": "bandit", "humanoid": true, "name": "强盗", "srd": "Monsters > NPCs > Bandit", "ac": 12, "hp": 11, "dex": 12, "attack": {"name": "弯刀", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}, "con": 12, "wis": 10},
+    {"id": "guard", "humanoid": true, "name": "卫兵", "srd": "Monsters > NPCs > Guard", "ac": 16, "hp": 11, "dex": 12, "attack": {"name": "长矛", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}, "con": 12, "wis": 11},
+    {"id": "thug", "humanoid": true, "name": "打手", "srd": "Monsters > NPCs > Thug", "ac": 11, "hp": 32, "dex": 11, "attack": {"name": "钉头锤", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": false}, "con": 14, "wis": 10},
+    {"id": "cultist", "humanoid": true, "name": "邪教徒", "srd": "Monsters > NPCs > Cultist", "ac": 12, "hp": 9, "dex": 12, "attack": {"name": "弯刀", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}, "con": 10, "wis": 11},
+    {"id": "goblin", "humanoid": true, "name": "地精", "srd": "Monsters > Goblin", "ac": 15, "hp": 7, "dex": 14, "attack": {"name": "短弓", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": true}, "con": 10, "wis": 8},
+    {"id": "skeleton", "name": "骷髅", "srd": "Monsters > Skeletons > Skeleton", "ac": 13, "hp": 13, "dex": 14, "attack": {"name": "短剑", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": false}, "con": 15, "wis": 8},
+    {"id": "zombie", "name": "僵尸", "srd": "Monsters > Zombies > Zombie", "ac": 8, "hp": 22, "dex": 6, "attack": {"name": "重击", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}, "con": 16, "wis": 6},
+    {"id": "wolf", "name": "狼", "srd": "Monsters > Miscellaneous Creatures > Wolf", "ac": 13, "hp": 11, "dex": 15, "attack": {"name": "啃咬", "bonus": 4, "dice": [2, 4], "plus": 2, "ranged": false}, "con": 12, "wis": 12},
+    {"id": "giant_rat", "name": "巨鼠", "srd": "Monsters > Miscellaneous Creatures > Giant Rat", "ac": 12, "hp": 7, "dex": 15, "attack": {"name": "啃咬", "bonus": 4, "dice": [1, 4], "plus": 2, "ranged": false}, "con": 11, "wis": 10},
+    {"id": "mastiff", "name": "獒犬", "srd": "Monsters > Miscellaneous Creatures > Mastiff", "ac": 12, "hp": 5, "dex": 14, "attack": {"name": "啃咬", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}, "con": 12, "wis": 12}
   ],
   "weapons": [
     {"id": "unarmed", "name": "拳脚", "srd": "Combat > Making an Attack > Melee Attacks (unarmed strike)", "dice": [1, 1], "finesse": false, "ranged": false},

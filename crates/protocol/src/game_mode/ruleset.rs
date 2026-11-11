@@ -70,6 +70,9 @@ pub struct Srd5Sheet {
     pub armor: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub shield: bool,
+    /// 准备的法术（data/rules/5e/spells.json）：牧师和法师才有
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spells: Vec<String>,
 }
 
 /// 节拍上的一场遭遇战：在一个地方、分成几块相邻的区域（按次序排成一线），来的是哪些对手、卷进来的是哪些角色
