@@ -3,7 +3,7 @@
   "creatures": [
     {"id": "bandit", "humanoid": true, "name": "强盗", "srd": "Monsters > NPCs > Bandit", "ac": 12, "hp": 11, "dex": 12, "attack": {"name": "弯刀", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}, "con": 12, "wis": 10},
     {"id": "guard", "humanoid": true, "name": "卫兵", "srd": "Monsters > NPCs > Guard", "ac": 16, "hp": 11, "dex": 12, "attack": {"name": "长矛", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}, "con": 12, "wis": 11},
-    {"id": "thug", "humanoid": true, "name": "打手", "srd": "Monsters > NPCs > Thug", "ac": 11, "hp": 32, "dex": 11, "attack": {"name": "钉头锤", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": false}, "con": 14, "wis": 10},
+    {"id": "thug", "humanoid": true, "name": "打手", "srd": "Monsters > NPCs > Thug", "ac": 11, "hp": 32, "dex": 11, "attack": {"name": "钉头锤", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": false}, "attacks": 2, "con": 14, "wis": 10},
     {"id": "cultist", "humanoid": true, "name": "邪教徒", "srd": "Monsters > NPCs > Cultist", "ac": 12, "hp": 9, "dex": 12, "attack": {"name": "弯刀", "bonus": 3, "dice": [1, 6], "plus": 1, "ranged": false}, "con": 10, "wis": 11},
     {"id": "goblin", "humanoid": true, "name": "地精", "srd": "Monsters > Goblin", "ac": 15, "hp": 7, "dex": 14, "attack": {"name": "短弓", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": true}, "con": 10, "wis": 8},
     {"id": "skeleton", "name": "骷髅", "srd": "Monsters > Skeletons > Skeleton", "ac": 13, "hp": 13, "dex": 14, "attack": {"name": "短剑", "bonus": 4, "dice": [1, 6], "plus": 2, "ranged": false}, "con": 15, "wis": 8},
