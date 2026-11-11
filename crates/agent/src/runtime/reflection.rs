@@ -11,6 +11,8 @@ use crate::{
 use kernel::World;
 use serde_json::json;
 
+/// 做梦的材料里，读过的东西带正文开头这么多字。
+const READ_EXCERPT_CHARS: usize = 300;
 /// 当天较早摘要只带末尾这么多字。
 const EARLIER_SAME_DAY_TAIL_CHARS: usize = 2000;
 
@@ -34,6 +36,20 @@ pub(super) fn fit_reflection(
     budget: u64,
     bytes_per_token: f64,
 ) -> Option<ReflectionBatch> {
+    if !batch.dream.is_empty() {
+        // 做梦的一批：放不下就从最后一条材料减起，减到太少就不做
+        let tool_cost = json!(tools::dream_definitions()).to_string().len() as u64;
+        loop {
+            let bytes = wire_bytes(&dream_messages(world, s, &batch, docs)) + tool_cost;
+            if estimate_tokens(bytes, bytes_per_token) <= budget {
+                return Some(batch);
+            }
+            batch.dream.pop();
+            if batch.dream.len() < crate::memory::dream::MIN_MATERIAL / 2 {
+                return None;
+            }
+        }
+    }
     let tool_cost = json!(tools::definitions(protocol::RequestKind::Reflection))
         .to_string()
         .len() as u64;
@@ -107,6 +123,72 @@ pub(super) fn messages(
     }
     let mut messages = vec![
         Message::text(Role::System, prompts::reflection_rules()),
+        Message::text(Role::User, task.to_string()),
+    ];
+    messages.extend(s.notebook.reading_dialogue.clone());
+    crate::context::clean::messages(&messages)
+}
+
+/// 做梦那一批的请求内容：这段日子里要紧的记忆（带编号，模型据此指明依据、说放下哪几条）、
+/// 对自己的认识和还惦记的目标。单独的 system，没有历史。
+pub(super) fn dream_messages(
+    world: &World,
+    s: &mut Session,
+    batch: &ReflectionBatch,
+    docs: &Documents,
+) -> Vec<Message> {
+    let memories: Vec<_> = batch
+        .dream
+        .iter()
+        .filter_map(|id| s.memory.records.get((*id - 1) as usize))
+        .map(|m| {
+            let mut one = json!({
+                "memory_id": m.memory_id,
+                "kind": m.kind,
+                "at_minutes": m.at,
+                "day": kernel::calendar::day_index(m.at) + 1,
+                "source": m.source,
+                "text": m.text.chars().take(crate::memory::TEXT_PREVIEW_CHARS).collect::<String>(),
+            });
+            // 读过东西的记忆只写着「读完了某某」；当时读到的正文带一段，梦里才有东西可想
+            let read = m.event_ids.iter().find_map(|id| {
+                world
+                    .contents()
+                    .reading_result(&s.actor_id, *id)
+                    .ok()
+                    .map(|r| {
+                        r.content
+                            .text
+                            .chars()
+                            .take(READ_EXCERPT_CHARS)
+                            .collect::<String>()
+                    })
+            });
+            if let Some(read) = read {
+                one["read"] = json!(read);
+            }
+            one
+        })
+        .collect();
+    let goals: Vec<String> = s
+        .goals
+        .values()
+        .filter(|g| g.status.is_open())
+        .map(|g| g.title.clone())
+        .collect();
+    let mut task = json!({
+        "resident_identity": {
+            "id": s.actor_id,
+            "name": world.actor(&s.actor_id).map(|a| &a.name)
+        },
+        "dream_task": { "reason": batch.reason, "day": batch.day + 1 },
+        "memories": memories,
+        "self": docs.get("self.md"),
+        "open_goals": goals
+    });
+    crate::context::view::field(&mut s.input, &mut task, "self", 2_000);
+    let mut messages = vec![
+        Message::text(Role::System, prompts::dream_rules()),
         Message::text(Role::User, task.to_string()),
     ];
     messages.extend(s.notebook.reading_dialogue.clone());

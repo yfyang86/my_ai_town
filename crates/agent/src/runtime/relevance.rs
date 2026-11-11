@@ -18,6 +18,8 @@ const NOTE_EXCERPT_CHARS: usize = 1000;
 /// 每个焦点对象最多取的记忆数，以及去重后的总数上限。
 const MEMORIES_PER_OBJECT: usize = 2;
 const MEMORIES_TOTAL: usize = 6;
+/// 按词补的记忆相关度至少要到这个数（0–1，相对这一次查到的最相关的一条）
+const MIN_RELEVANCE: f64 = 0.35;
 
 /// 一轮材料的焦点。
 pub(super) struct Focus {
@@ -170,10 +172,12 @@ pub(super) fn related_notes(
 }
 
 impl ResidentRuntime {
-    /// 自动记忆按焦点对象取，每个对象最多几条，去重后有总数上限。已展示过的不重复；
-    /// 来源事件还在会话原文里的也不带，模型看得到原文。
+    /// 自动记忆先按焦点对象取，每个对象最多几条；还有空位时再按词补：眼前提到的人、地点、道具的名字
+    /// 和开放目标的标题当作要找的话，按「相关度 + 新旧 + 要紧程度」取分高的（相关度太低的不要）。
+    /// 去重后有总数上限。已展示过的不重复；来源事件还在会话原文里的也不带，模型看得到原文。
     pub(super) fn context_memories(
         &mut self,
+        world: &World,
         s: &Session,
         focus: &Focus,
     ) -> Result<Vec<MemoryRecord>, AgentError> {
@@ -188,6 +192,31 @@ impl ResidentRuntime {
                     ..Default::default()
                 },
             )?);
+        }
+        let mut wanted: Vec<String> = entity_names(world)
+            .into_iter()
+            .filter(|e| focus.text.contains(e.as_str()))
+            .collect();
+        wanted.extend(
+            s.goals
+                .values()
+                .filter(|g| g.status.is_open())
+                .map(|g| g.title.clone()),
+        );
+        if !wanted.is_empty() {
+            let found = self.index.search(
+                &s.actor_id,
+                &s.memory,
+                &wanted.join(" "),
+                world.minutes(),
+                MEMORIES_TOTAL * 2,
+            )?;
+            records.extend(
+                found
+                    .into_iter()
+                    .filter(|m| m.relevance >= MIN_RELEVANCE)
+                    .map(|m| m.record),
+            );
         }
         let folded = s.cursors.folded_through;
         Ok(distinct_records(

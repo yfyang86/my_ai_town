@@ -469,7 +469,21 @@ impl ResidentRuntime {
             });
         let continue_reading =
             (read_something || only_looked) && dialogue.len() <= READING_DIALOGUE_MAX;
-        if continue_reading || s.notebook.request.take().is_none() {
+        if continue_reading {
+            return;
+        }
+        let Some(batch) = s.notebook.request.take() else {
+            return;
+        };
+        if !batch.dream.is_empty() {
+            // 模型没把梦交回来：这一觉不做梦了，不算整理失败，平常的整理照常
+            s.notebook.reading_dialogue.clear();
+            s.memory.skip_dream();
+            self.record(
+                world,
+                s,
+                Trace::new("dream_skipped", json!({})).request(round.id),
+            );
             return;
         }
         let book = &mut s.notebook;

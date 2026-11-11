@@ -225,7 +225,7 @@ look 是这个人在小镇里的像素小人长相，照年龄、职业和气质
 }
 
 /// 解析 JSON；模型偶尔写完嵌套的长相就收尾、漏掉最外层的右括号，这时按没配对的左括号补齐再解析一次。
-fn parse_unclosed(text: &str) -> Result<Value, serde_json::Error> {
+pub(crate) fn parse_unclosed(text: &str) -> Result<Value, serde_json::Error> {
     serde_json::from_str(text).or_else(|error| {
         let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
         for c in text.chars() {
@@ -458,7 +458,7 @@ pub fn planner_prompt(
 
 /// 回复里第一个完整的 JSON 对象：从第一个左括号起数括号（跳过字符串里的），数回零就截住。
 /// 模型偶尔写完整个对象又把提示词里结构示例的尾巴抄一遍，后面那截不要；没数回零就交给 parse_unclosed 补齐。
-fn first_object(text: &str) -> Option<&str> {
+pub(crate) fn first_object(text: &str) -> Option<&str> {
     let start = text.find('{')?;
     let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
     for (i, c) in text[start..].char_indices() {

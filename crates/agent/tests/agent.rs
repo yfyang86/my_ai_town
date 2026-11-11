@@ -3,6 +3,7 @@ mod support;
 
 mod builtin_model;
 mod resident_context;
+mod resident_dream;
 mod resident_interactions;
 mod resident_notebook;
 mod resident_possession;

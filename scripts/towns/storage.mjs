@@ -62,6 +62,8 @@ export function dataRoot() {
  * 打开也还在。逐步设置的小镇没有这个文件。从预制小镇开的一局另记 prefab（预制小镇的编号，见
  * frontend/town-shared/src/prefabs），进镇时按它出开局设置。手机上的管理服务（crates/manager/src/storage.rs）规则相同。
  */
+/** 建镇说明里的故事草稿最多这么大（JSON 字节数），同 crates/manager/src/storage.rs */
+const SCENARIO_MAX_BYTES = 64 * 1024
 export function townCreation(value) {
   if (value === undefined || value === null) return null
   const invalid = () => Error('建镇说明无效')
@@ -76,6 +78,15 @@ export function townCreation(value) {
   const prefab = value.prefab ?? null
   if (prefab !== null && (typeof prefab !== 'string' || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(prefab)))
     throw invalid()
+  // 故事编辑器写的故事草稿：原样存着，进镇时页面按它出开局设置；只限大小，内容由页面和内核查
+  const scenario = value.scenario ?? null
+  if (
+    scenario !== null &&
+    (typeof scenario !== 'object' ||
+      Array.isArray(scenario) ||
+      Buffer.byteLength(JSON.stringify(scenario)) > SCENARIO_MAX_BYTES)
+  )
+    throw invalid()
   return {
     description: text(value.description, 2000),
     worldview: text(value.worldview, 6000),
@@ -85,7 +96,15 @@ export function townCreation(value) {
       return line
     }),
     ...(prefab ? { prefab } : {}),
+    ...(scenario ? { scenario } : {}),
   }
+}
+/** 选择小镇页不显示的剧本编号：小写字母、数字和连字符，最多 64 个 */
+export function hiddenPrefabs(value) {
+  if (!Array.isArray(value) || value.length > 64) throw Error('剧本名单无效')
+  for (const id of value)
+    if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(id)) throw Error('剧本编号无效')
+  return [...new Set(value)].sort()
 }
 export function safeId(id) {
   if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,90}$/.test(id)) throw Error('小镇编号无效')
@@ -148,6 +167,17 @@ export class Storage {
     }
   }
   // 内置小镇：随应用发的（BUILTIN_TOWNS），和预制玩法的 prefab-<编号>（第一次选中时生成，只能重新开始）
+  /** 选择小镇页的摆法（和手机上的管理服务共用一个文件）：现在只有不显示的剧本 */
+  async launcher() {
+    const file = path.join(this.root, 'config', 'launcher.json')
+    const saved = await readJson(file).catch(() => ({}))
+    return { hidden: hiddenPrefabs(saved.hidden_prefabs ?? []) }
+  }
+  async setLauncher({ hidden }) {
+    const next = { hidden_prefabs: hiddenPrefabs(hidden) }
+    await atomicJson(path.join(this.root, 'config', 'launcher.json'), next)
+    return { hidden: next.hidden_prefabs }
+  }
   canDelete(id) {
     safeId(id)
     return !builtinMap(id) && !id.startsWith('prefab-')

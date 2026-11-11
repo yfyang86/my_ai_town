@@ -43,12 +43,17 @@ fn fact_kinds() -> Vec<FactKind> {
         Presence
     })
 }
+/// recall 能按种类筛的几种。梦里提炼的认识不单独筛（工具定义因此和有它之前一字不差），按词、按对象照样查得到。
 pub(crate) fn memory_kinds() -> Vec<MemoryKind> {
     variants!(MemoryKind {
         Episode,
         Recognition,
-        Experience
+        Experience,
+        Insight
     })
+    .into_iter()
+    .filter(|k| *k != MemoryKind::Insight)
+    .collect()
 }
 pub(crate) fn goal_statuses() -> Vec<GoalStatus> {
     variants!(GoalStatus {
@@ -334,6 +339,27 @@ pub(super) fn reflect() -> Value {
             )
         }),
         &["through_event", "summary", "notes"],
+    )
+}
+/// 做梦那一轮交回来的：提炼的认识（各指明依据的记忆）、可以放下的记忆、几句梦
+pub(super) fn dream() -> Value {
+    use crate::memory::dream::{
+        DREAM_CHARS, INSIGHTS_MAX, INSIGHT_CHARS, INSIGHT_EVIDENCE_MAX, LET_GO_MAX,
+    };
+    let insight = object(
+        json!({"text": text(INSIGHT_CHARS), "memory_ids": ids(1, INSIGHT_EVIDENCE_MAX)}),
+        &["text", "memory_ids"],
+    );
+    object(
+        json!({
+            "insights": described(
+                json!({"type":"array","maxItems":INSIGHTS_MAX,"items":insight}),
+                "想明白的、以后还用得上的认识；允许空数组"
+            ),
+            "let_go": described(ids(0, LET_GO_MAX), "可以放下的记忆编号；允许空数组"),
+            "dream": string(DREAM_CHARS)
+        }),
+        &["insights", "let_go", "dream"],
     )
 }
 pub(super) fn read_content() -> Value {

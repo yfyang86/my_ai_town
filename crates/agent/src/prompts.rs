@@ -7,6 +7,7 @@ use crate::tools::limits::NOTES_MAX;
 const RULES: &str = include_str!("../prompts/resident_agent.txt");
 /// 增量整理轮次的规则。占位符：notes_max。
 const REFLECTION_RULES: &str = include_str!("../prompts/resident_reflection.txt");
+const DREAM_RULES: &str = include_str!("../prompts/resident_dream.txt");
 /// 交谈轮次的规则：轮到本人发言时的单次请求。占位符：unchanged_rule。
 const CHAT_RULES: &str = include_str!("../prompts/resident_chat.txt");
 
@@ -33,6 +34,22 @@ pub fn chat_system_prompt(instructions: &str) -> String {
 /// 整理轮次的 system。
 pub fn reflection_rules() -> String {
     fill(REFLECTION_RULES, &[("notes_max", &NOTES_MAX.to_string())])
+}
+/// 做梦那一轮的 system（走整理轮次，工具只有 dream）。
+pub fn dream_rules() -> String {
+    use crate::memory::dream::{
+        DREAM_CHARS, INSIGHTS_MAX, INSIGHT_CHARS, INSIGHT_EVIDENCE_MAX, LET_GO_MAX,
+    };
+    fill(
+        DREAM_RULES,
+        &[
+            ("insights_max", &INSIGHTS_MAX.to_string()),
+            ("insight_chars", &INSIGHT_CHARS.to_string()),
+            ("evidence_max", &INSIGHT_EVIDENCE_MAX.to_string()),
+            ("let_go_max", &LET_GO_MAX.to_string()),
+            ("dream_chars", &DREAM_CHARS.to_string()),
+        ],
+    )
 }
 /// 交谈轮次的调用出错，让模型改一次；再错就交出发言权。
 pub const CHAT_TOOLS_ONLY: &str =

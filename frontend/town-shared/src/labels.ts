@@ -78,6 +78,7 @@ export const memoryKindLabels: Record<MemoryKind, string> = {
   episode: '经历',
   recognition: '认识',
   experience: '经验',
+  insight: '梦里想明白的',
 }
 
 export const memorySourceLabels: Record<EvidenceSource, string> = {

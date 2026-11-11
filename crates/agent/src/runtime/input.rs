@@ -305,7 +305,7 @@ impl ResidentRuntime {
             body.insert("goals".into(), view::goals(s));
         }
         let focus = relevance::Focus::of_observation(s, observation);
-        let memories = self.context_memories(s, &focus)?;
+        let memories = self.context_memories(world, s, &focus)?;
         if !memories.is_empty() {
             body.insert("recent_memories".into(), json!(memories));
         }

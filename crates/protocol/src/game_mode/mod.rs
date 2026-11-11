@@ -1,13 +1,19 @@
 //! 玩法（大逃杀的潮水圈、狼人杀、执剑人之夜……）在线上的形状。一个世界同时最多开一个玩法；没开时名册、设定里都没有
 //! 玩法的字段，给模型的观察里也没有那一栏。加一个玩法：在这个目录写它自己的类型，再在下面三个枚举里
 //! 各加一项（内核那边见 kernel 的 game_mode）。
+mod storyline;
 mod swordholder;
 mod tide;
 mod werewolf;
 
+pub use storyline::{
+    StorylineBeat, StorylineBeatState, StorylineBeatView, StorylineContext, StorylineLine,
+    StorylineMilestone, StorylineMilestoneView, StorylineRole, StorylineScene, StorylineScript,
+    StorylineSeat, StorylineView, StorylineWhen,
+};
 pub use swordholder::{
     SwordholderBallot, SwordholderContext, SwordholderDecision, SwordholderEnding, SwordholderLine,
-    SwordholderPhase, SwordholderRole, SwordholderSeat, SwordholderView,
+    SwordholderPhase, SwordholderRole, SwordholderRules, SwordholderSeat, SwordholderView,
 };
 pub use tide::{
     TideCircle, TideContext, TideFlare, TideNews, TideNewsKind, TidePhase, TidePlayer, TideView,
@@ -26,6 +32,7 @@ pub enum GameModeView {
     Tide(TideView),
     Werewolf(WerewolfView),
     Swordholder(SwordholderView),
+    Storyline(StorylineView),
 }
 
 /// 打开哪个玩法、带什么设置；SetGameMode 不带它就是关掉。
@@ -45,12 +52,20 @@ pub enum GameModeChoice {
         day_hours: Option<u32>,
     },
     /// 执剑人之夜：seed 定下两位候选人演说和选民表态的先后、平票时抽签；
-    /// day_hours 是白天自由活动几小时（天亮到 16:30 敲钟）
+    /// day_hours 是白天自由活动几小时（天亮到敲钟）；rules 是改过的钟点、期限和关掉的环节，不带就照原来的
     Swordholder {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seed: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         day_hours: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rules: Option<SwordholderRules>,
+    },
+    /// 故事模式：整本剧本带进来；seed 留给以后要抽签的地方
+    Storyline {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seed: Option<u32>,
+        script: Box<StorylineScript>,
     },
 }
 
@@ -61,6 +76,7 @@ pub enum GameModeContext {
     Tide(TideContext),
     Werewolf(WerewolfContext),
     Swordholder(SwordholderContext),
+    Storyline(StorylineContext),
 }
 
 impl GameModeContext {
@@ -69,6 +85,7 @@ impl GameModeContext {
             GameModeContext::Tide(_) => "tide",
             GameModeContext::Werewolf(_) => "werewolf",
             GameModeContext::Swordholder(_) => "swordholder",
+            GameModeContext::Storyline(_) => "storyline",
         }
     }
 }

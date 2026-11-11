@@ -13,6 +13,7 @@ import { initCreator } from './creator'
 import { PREFABS, type Prefab } from 'town-shared/prefabs/index'
 import { generatePrefab, isBuiltinTown, missingPrefabs, prefabTownId } from './prefabEntry'
 import { api } from './api'
+import { initStoryEditor } from './storyEditor'
 import { warmSelectedGame } from '../startupWarmup'
 import { MUSIC_TRACKS } from 'town-shared/audio/catalog'
 import { createMusicController } from 'town-shared/audio/music'
@@ -564,6 +565,47 @@ function mapGroup(name: string, cards: HTMLElement[]) {
   return group
 }
 
+/** 选择小镇页不显示的剧本（管理服务记着，电脑和应用共用）；不显示只是不列出来，开过的那一局还在 */
+let hiddenPrefabs = new Set<string>()
+const prefabShown = (id: string) => !hiddenPrefabs.has(id.replace(/^prefab-/, ''))
+
+/** 「剧本」组名旁边的「显示哪些」：每个剧本一个勾，改了就存、重画列表 */
+function prefabPicker() {
+  const box = document.createElement('details')
+  box.className = 'map-group-manage'
+  const summary = document.createElement('summary')
+  summary.textContent = '显示哪些'
+  const list = document.createElement('div')
+  for (const prefab of PREFABS) {
+    const line = document.createElement('label')
+    const check = document.createElement('input')
+    check.type = 'checkbox'
+    check.checked = !hiddenPrefabs.has(prefab.id)
+    check.onchange = async () => {
+      const hidden = new Set(hiddenPrefabs)
+      if (check.checked) hidden.delete(prefab.id)
+      else hidden.add(prefab.id)
+      try {
+        const saved = await api<{ hidden: string[] }>('/prefabs', { hidden: [...hidden] })
+        hiddenPrefabs = new Set(saved.hidden)
+        // 只重画列表；正选着的那个被关掉了才换一个选
+        const shown = drawList()
+        const again = document.querySelector<HTMLDetailsElement>('.map-group-manage')
+        if (again) again.open = true
+        if (selected && !shown.some((m) => m.id === selected?.id) && shown[0])
+          await select(shown[0])
+      } catch (error) {
+        check.checked = !check.checked
+        $('pause-status').textContent = errorText(error)
+      }
+    }
+    line.append(check, prefab.name)
+    list.append(line)
+  }
+  box.append(summary, list)
+  return box
+}
+
 function prefabOption(prefab: Prefab) {
   const b = mapOption({
     id: prefabTownId(prefab),
@@ -614,31 +656,51 @@ async function buildPrefab(prefab: Prefab) {
   }
 }
 
+/** 画小镇列表：返回列出来的小镇（关掉的剧本不在里面） */
+function drawList() {
+  const shown = maps.filter((m) => !m.id.startsWith('prefab-') || prefabShown(m.id))
+  // 三组：随应用带的地图、选了就玩某个玩法的剧本（还没生成的也排在这里，选中时才生成）、玩家自己建的
+  const groups: [string, HTMLElement[]][] = [
+    ['内置地图', maps.filter((m) => m.origin === 'builtin').map(mapOption)],
+    [
+      '剧本',
+      [
+        ...shown.filter((m) => m.id.startsWith('prefab-')).map(mapOption),
+        ...missingPrefabs(maps)
+          .filter((p) => prefabShown(p.id))
+          .map(prefabOption),
+      ],
+    ],
+    ['我建的', maps.filter((m) => !isBuiltinTown(m)).map(mapOption)],
+  ]
+  // 「剧本」一组全关掉了也留着组名，好把它们再打开
+  $('map-list').replaceChildren(
+    ...groups
+      .filter(([name, cards]) => cards.length || name === '剧本')
+      .map(([name, cards]) => {
+        const group = mapGroup(name, cards)
+        if (name === '剧本') group.querySelector('.map-group-name')?.append(prefabPicker())
+        return group
+      })
+  )
+  $('map-empty').hidden = maps.length > 0
+  syncInsets()
+  if (selected) markSelected(selected.id)
+  return shown
+}
+
 async function refresh(id?: string) {
   try {
     maps = await listMaps()
-    // 三组：随应用带的地图、选了就玩某个玩法的剧本（还没生成的也排在这里，选中时才生成）、玩家自己建的
-    const groups: [string, HTMLElement[]][] = [
-      ['内置地图', maps.filter((m) => m.origin === 'builtin').map(mapOption)],
-      [
-        '剧本',
-        [
-          ...maps.filter((m) => m.id.startsWith('prefab-')).map(mapOption),
-          ...missingPrefabs(maps).map(prefabOption),
-        ],
-      ],
-      ['我建的', maps.filter((m) => !isBuiltinTown(m)).map(mapOption)],
-    ]
-    $('map-list').replaceChildren(
-      ...groups.filter(([, cards]) => cards.length).map(([name, cards]) => mapGroup(name, cards))
+    hiddenPrefabs = new Set(
+      (await api<{ hidden: string[] }>('/prefabs').catch(() => ({ hidden: [] }))).hidden
     )
-    $('map-empty').hidden = maps.length > 0
-    syncInsets()
+    const shown = drawList()
     const wanted = id ?? new URLSearchParams(location.search).get('map')
-    const initial = maps.find((m) => m.id === wanted)
-    const prefab = PREFABS.find((p) => prefabTownId(p) === wanted)
+    const initial = shown.find((m) => m.id === wanted)
+    const prefab = PREFABS.find((p) => prefabTownId(p) === wanted && prefabShown(p.id))
     if (!initial && prefab) await buildPrefab(prefab)
-    else if (initial ?? maps[0]) await select(initial ?? maps[0]!)
+    else if (initial ?? shown[0]) await select(initial ?? shown[0]!)
     return true
   } catch (error) {
     $('selection-status').textContent = '小镇列表加载失败'
@@ -902,6 +964,14 @@ initCreator(
     location.assign(gameUrl(runtime))
   }
 )
+// 写一个故事：模型把提纲排成角色、节拍和里程碑，过目后建成小镇（见 storyEditor.ts）
+initStoryEditor({
+  onSaved: async (id) => {
+    fitNext = id
+    await refresh(id)
+  },
+  connectModel: () => homeSettings.connect(),
+})
 // ← → 换到旁边那张明信片（赏景时这两个键归景色条换时刻；建镇页、设定页开着时不管）
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return

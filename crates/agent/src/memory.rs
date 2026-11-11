@@ -6,8 +6,10 @@ pub use protocol::{EvidenceSource, MemoryKind, MemoryStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub mod dream;
 mod index;
-pub use index::MemoryIndex;
+pub use dream::{DreamNote, DreamState, DreamUpdate};
+pub use index::{MemoryIndex, Scored};
 
 /// 记忆正文进入提示词或检索结果时的截断长度。
 pub const TEXT_PREVIEW_CHARS: usize = 400;
@@ -47,6 +49,26 @@ impl MemoryRecord {
                 Some(FactKind::Notice | FactKind::Speech | FactKind::Readable)
             )
             || self.text.chars().count() >= 40
+    }
+    /// 要紧程度（0–1）：梦里提炼的认识最高，反复失败得来的经验其次，别人说的话、公告、读到的东西
+    /// 比日常见闻要紧；受保护的加一截；按可信度打折。检索时和相关度、新旧合成一个分。
+    pub fn importance(&self) -> f64 {
+        // 玩法叫人交动作的通知（「轮到你……用 mode_action 交……」）是当时该怎么操作，过后不值得记
+        if self.kind == MemoryKind::Episode && self.text.contains("mode_action") {
+            return 0.1;
+        }
+        let base = match self.kind {
+            MemoryKind::Insight => 0.9,
+            MemoryKind::Experience => 0.7,
+            MemoryKind::Recognition => 0.5,
+            MemoryKind::Episode => match self.fact_kind {
+                Some(FactKind::Notice | FactKind::Speech | FactKind::Readable) => 0.5,
+                _ if self.has_content() => 0.35,
+                _ => 0.2,
+            },
+        };
+        let raised = base + if self.protected { 0.2 } else { 0.0 };
+        (raised * (0.5 + 0.5 * self.confidence)).clamp(0.0, 1.0)
     }
     fn blank(actor: &str, kind: MemoryKind, key: String) -> Self {
         Self {
@@ -141,6 +163,9 @@ pub struct MemoryStore {
     pub ingested_cursor: u64,
     pub consolidated_cursor: u64,
     pub revision: u64,
+    /// 睡没睡、该不该做梦、最近的梦（见 dream.rs）；没睡过觉的存档里没有这一项
+    #[serde(default, skip_serializing_if = "dream::untouched")]
+    pub dream: DreamState,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

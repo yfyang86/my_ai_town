@@ -198,7 +198,7 @@ export type AgentState =
   | 'no_model'
 export type GoalStatus = 'active' | 'paused' | 'completed' | 'abandoned' | 'failed'
 export type NoteStatus = 'candidate' | 'supported' | 'rejected'
-export type MemoryKind = 'episode' | 'recognition' | 'experience'
+export type MemoryKind = 'episode' | 'recognition' | 'experience' | 'insight'
 export type MemoryStatus = 'active' | 'candidate' | 'superseded'
 export type EvidenceSource = 'observed' | 'reported' | 'inferred'
 export type InteractionStatus =
@@ -267,6 +267,8 @@ export interface ResidentAgentView {
     replaces: number[]
     events: WorldFact[]
   }[]
+  /** 最近几觉的梦，新的在前；没做过梦就没有 */
+  dreams?: { day: number; at: number; text: string; insights: number; let_go: number }[]
 }
 
 /** 小镇当前使用的服务商与模型 */
@@ -640,13 +642,16 @@ export type GameModeView =
   | ({ kind: 'tide' } & TideView)
   | ({ kind: 'werewolf' } & WerewolfView)
   | ({ kind: 'swordholder' } & SwordholderView)
+  | ({ kind: 'storyline' } & StorylineView)
 /** 打开哪个玩法、带什么设置；set_game_mode 不带它就是关掉 */
 export type GameModeChoice =
   | { kind: 'tide'; seed?: number }
   /** 狼人杀：seed 定下谁拿什么身份；day_hours 是白天自由活动几小时（天亮到 16:30 敲钟） */
   | { kind: 'werewolf'; seed?: number; day_hours?: number }
-  /** 执剑人之夜：seed 定下演说和表态的先后、平票时抽签；day_hours 是白天自由活动几小时（天亮到 16:30 敲钟） */
-  | { kind: 'swordholder'; seed?: number; day_hours?: number }
+  /** 执剑人之夜：seed 定下演说和表态的先后、平票时抽签；day_hours 是白天自由活动几小时（天亮到敲钟）；rules 是改过的规则 */
+  | { kind: 'swordholder'; seed?: number; day_hours?: number; rules?: SwordholderRules }
+  /** 故事模式：整本剧本带进来 */
+  | { kind: 'storyline'; seed?: number; script: StorylineScript }
 
 /** 潮水圈里的一个圈：圆心和半径都是行走地图上的米（x 和地面上的 z） */
 export interface TideCircle {
@@ -749,6 +754,99 @@ export interface WerewolfView {
   winner?: WerewolfSide
 }
 
+/** 故事模式的一本剧本：角色（按座号）、到点发生的节拍、要追踪的里程碑；钟点是第几天（从 1 数）的第几分钟 */
+export interface StorylineScript {
+  title: string
+  /** 每个角色都知道的前情 */
+  premise: string
+  cast: StorylineRole[]
+  beats: StorylineBeat[]
+  milestones?: StorylineMilestone[]
+  ends_day: number
+  ends_minute: number
+  epilogue?: string
+}
+export interface StorylineRole {
+  /** 在故事里是谁，公开 */
+  role: string
+  /** 想要什么：只有本人知道 */
+  goal: string
+  secret?: string
+}
+export interface StorylineBeat {
+  id: string
+  title: string
+  day: number
+  minute: number
+  /** 地点名字里的几个字 */
+  place?: string
+  /** 和哪几个座号有关；不写是所有人 */
+  who?: number[]
+  announce: string
+  /** 只对 who 里的人说的一段 */
+  brief?: string
+  /** 一场戏：这几个座号按次序一次一人说话 */
+  scene?: { speakers: number[]; minutes: number; chars: number }
+}
+export interface StorylineMilestone {
+  id: string
+  title: string
+  detail: string
+  when: StorylineWhen
+  /** 只有能宣布它的人知道有这一项 */
+  secret?: boolean
+}
+export type StorylineWhen =
+  | { kind: 'beat'; beat: string }
+  | { kind: 'gather'; place: string; seats?: number[]; count: number }
+  | { kind: 'declare'; seats?: number[] }
+export interface StorylineSeat {
+  seat: number
+  id: string
+  name: string
+  role: string
+  gone?: boolean
+}
+export interface StorylineBeatView {
+  id: string
+  title: string
+  /** 世界分钟 */
+  at: number
+  place?: string
+  state: 'upcoming' | 'current' | 'done'
+}
+export interface StorylineMilestoneView {
+  id: string
+  title: string
+  detail: string
+  done: boolean
+  missed?: boolean
+  at?: number
+  by?: number
+  text?: string
+}
+export interface StorylineLine {
+  seat: number
+  occasion: string
+  text: string
+  at: number
+  away?: boolean
+  reason?: string
+}
+/** 故事模式（上帝视角）：时间线、里程碑、角色、正在进行的那场戏 */
+export interface StorylineView {
+  title: string
+  notice: string
+  seats: StorylineSeat[]
+  beats: StorylineBeatView[]
+  milestones?: StorylineMilestoneView[]
+  turn?: number
+  until?: number
+  lines?: StorylineLine[]
+  ended?: boolean
+  epilogue?: string
+}
+
 /** 执剑人之夜的身份：按入住的号码，1 号现任执剑人，2、3 号候选人，4 号三体世界的代表，其余是选民 */
 export type SwordholderRole = 'holder' | 'candidate' | 'envoy' | 'voter'
 export type SwordholderPhase =
@@ -764,7 +862,28 @@ export type SwordholderPhase =
   | 'aftermath'
   | 'over'
 /** 结局：按下了（引力波广播发出），或没按、到点（威慑失败，天线被毁） */
-export type SwordholderEnding = 'broadcast' | 'failed'
+export type SwordholderEnding = 'broadcast' | 'failed' | 'peace'
+
+/** 执剑人之夜开局时可以改的规则：钟点是当天第几分钟，期限是游戏分钟；不写的照原来的 */
+export interface SwordholderRules {
+  bell?: number
+  meet?: number
+  handover?: number
+  speak_minutes?: number
+  vote_minutes?: number
+  appoint_minutes?: number
+  handover_minutes?: number
+  attack_delay?: number
+  attack_minutes?: number
+  statement_minutes?: number
+  free_tempo?: number
+  opening_remark?: boolean
+  stances?: boolean
+  handover_remark?: boolean
+  /** 关掉时交接完一局就结束，结局是 peace */
+  attack?: boolean
+  statement?: boolean
+}
 /** 一个座位；gone 是法官没经手就不在了（被人害死、饿死、离开） */
 export interface SwordholderSeat {
   seat: number

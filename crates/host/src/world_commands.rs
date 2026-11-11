@@ -122,9 +122,18 @@ impl Runtime {
                 seed: roll(seed),
                 day_hours,
             },
-            GameModeChoice::Swordholder { seed, day_hours } => GameModeChoice::Swordholder {
+            GameModeChoice::Swordholder {
+                seed,
+                day_hours,
+                rules,
+            } => GameModeChoice::Swordholder {
                 seed: roll(seed),
                 day_hours,
+                rules,
+            },
+            GameModeChoice::Storyline { seed, script } => GameModeChoice::Storyline {
+                seed: roll(seed),
+                script,
             },
         });
         let result = self
@@ -146,10 +155,18 @@ impl Runtime {
                     Some(GameModeChoice::Werewolf { .. }) => {
                         "狼人杀已打开：身份已发下，天亮开局；每天 16:30 敲钟、17:00 议事".into()
                     }
-                    Some(GameModeChoice::Swordholder { .. }) => {
+                    Some(GameModeChoice::Swordholder { rules: None, .. }) => {
                         "执剑人之夜已打开：天亮开局，16:30 敲钟、17:00 演说和投票，19:00 交接"
                             .into()
                     }
+                    Some(GameModeChoice::Swordholder { .. }) => {
+                        "执剑人之夜已打开：天亮开局，钟点和环节照这一局改过的规则走".into()
+                    }
+                    Some(GameModeChoice::Storyline { script, .. }) => format!(
+                        "故事「{}」已打开：{} 个节拍到点发生，角色自己决定怎么做",
+                        script.title.trim(),
+                        script.beats.len()
+                    ),
                     None => "玩法已关掉，世界恢复原样".into(),
                 }),
             })

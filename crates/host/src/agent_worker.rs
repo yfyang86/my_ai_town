@@ -109,6 +109,31 @@ pub fn complete(target: &LlmTarget, request: &AgentRequest) -> Result<ModelReply
 
 /// 仅用于离线接线验收：看一次眼前道具，然后等待；不作为真实模型行为证据。
 fn mock_reply(request: &AgentRequest) -> ModelReply {
+    // 做梦的那一轮：材料里第一条记忆当依据交一条认识，证明这条线是通的
+    if let Some(task) = request
+        .messages
+        .iter()
+        .filter_map(|m| serde_json::from_str::<Value>(&m.content).ok())
+        .find(|v| v.get("dream_task").is_some())
+    {
+        let first = task["memories"][0]["memory_id"].clone();
+        return ModelReply {
+            thought: "离线做梦接线检查。".into(),
+            calls: vec![agent::conversation::ToolCall {
+                id: format!("mock_dream_{}", request.stamp.id),
+                name: "dream".into(),
+                arguments: json!({
+                    "insights": [{
+                        "text": "离线接线验证，不作为真实模型提炼效果的证据。",
+                        "memory_ids": [first],
+                    }],
+                    "let_go": [],
+                    "dream": "离线接线验证的梦。",
+                }),
+            }],
+            usage: None,
+        };
+    }
     if let Some(task) = request
         .messages
         .iter()

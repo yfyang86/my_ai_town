@@ -7,9 +7,11 @@ use kernel::{
 };
 use protocol::{
     FactKind, GameModeAction, GameModeChoice, GameModeContext, GameModeView, GroupStatus,
-    PhysiologySwitches, SwordholderEnding, SwordholderPhase, SwordholderRole, SwordholderView,
-    TideCircle, TideFlare, TideNewsKind, TidePhase, TideView, WerewolfOut, WerewolfPhase,
-    WerewolfRole, WerewolfSide, WerewolfView,
+    PhysiologySwitches, StorylineBeat, StorylineBeatState, StorylineMilestone, StorylineRole,
+    StorylineScene, StorylineScript, StorylineView, StorylineWhen, SwordholderEnding,
+    SwordholderPhase, SwordholderRole, SwordholderRules, SwordholderView, TideCircle, TideFlare,
+    TideNewsKind, TidePhase, TideView, WerewolfOut, WerewolfPhase, WerewolfRole, WerewolfSide,
+    WerewolfView,
 };
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
@@ -593,6 +595,405 @@ fn werewolf(w: &World) -> WerewolfView {
     }
 }
 
+/// 改过规则的一局：10:00 敲钟、10:10 演说、11:00 交接，现任执剑人的两句话、选民表态、水滴来袭和最后的宣布都关掉。
+/// 只剩两位候选人演说和投票，交接完就收场（结局是 peace）；投票中途存档读档，规则跟着存档走。
+/// 钟点排反了、白天排不下时开不了，原来的世界不受影响。
+#[test]
+fn swordholder_night_follows_edited_rules_and_skips_switched_off_phases() {
+    let ids: Vec<String> = (1..=6).map(|n| format!("r{n}")).collect();
+    let names = ["罗辑", "程心", "维德", "智子", "艾AA", "老秦"];
+    let people: Vec<(&str, &str, &str)> = ids
+        .iter()
+        .zip(names)
+        .map(|(id, name)| (id.as_str(), name, "loc_a"))
+        .collect();
+    let fresh = || {
+        let mut w = common::world_with(common::tiny_topology(), 7.0 * HOUR, &people);
+        w.set_physiology(PhysiologySwitches {
+            fullness: false,
+            energy: false,
+            water: false,
+            health: false,
+            weather: false,
+        });
+        w
+    };
+    let open = |w: &mut World, day_hours: u32, rules: SwordholderRules| {
+        w.set_game_mode(Some(&GameModeChoice::Swordholder {
+            seed: Some(5),
+            day_hours: Some(day_hours),
+            rules: Some(rules),
+        }))
+    };
+    let mut w = fresh();
+    let backwards = SwordholderRules {
+        bell: Some(700),
+        meet: Some(650),
+        ..Default::default()
+    };
+    assert!(open(&mut w, 2, backwards).is_err());
+    let early = SwordholderRules {
+        bell: Some(300),
+        meet: Some(310),
+        ..Default::default()
+    };
+    assert!(open(&mut w, 8, early).is_err());
+    assert!(w.game_mode().is_none());
+
+    let rules = SwordholderRules {
+        bell: Some(600),
+        meet: Some(610),
+        handover: Some(660),
+        speak_minutes: Some(5),
+        opening_remark: Some(false),
+        stances: Some(false),
+        handover_remark: Some(false),
+        attack: Some(false),
+        statement: Some(false),
+        ..Default::default()
+    };
+    open(&mut w, 2, rules).unwrap();
+    // 08:00 天亮：议程照改过的钟点说，没有关掉的环节
+    w.step(1.1 * HOUR);
+    let told = w.actor("r5").unwrap().journal.events_after(0);
+    let agenda = told.iter().find(|e| e.text.contains("身份是")).unwrap();
+    assert!(agenda.text.contains("10:00 敲钟"), "{}", agenda.text);
+    assert!(agenda.text.contains("11:00 在"), "{}", agenda.text);
+    assert!(!agenda.text.contains("表态") && !agenda.text.contains("先说一句"));
+
+    let mut reloaded = false;
+    for _ in 0..600 {
+        let v = swordholder(&w);
+        if v.phase == SwordholderPhase::Over {
+            break;
+        }
+        if v.phase == SwordholderPhase::Vote && v.ballots.len() == 1 && !reloaded {
+            reloaded = true;
+            w = common::restore(&w, fresh());
+            assert_eq!(swordholder(&w), v);
+        }
+        let mut acted = false;
+        for id in &ids {
+            let Some(GameModeContext::Swordholder(c)) = w.game_mode_context(id) else {
+                continue;
+            };
+            match c.actions.first().map(String::as_str) {
+                Some("speak") => mode_act(&mut w, id, "speak", None, Some("我想说几句。")),
+                Some("vote") => mode_act(&mut w, id, "vote", Some(2), None),
+                _ => continue,
+            }
+            acted = true;
+            break;
+        }
+        if !acted {
+            w.step(5.0);
+        }
+    }
+    let v = swordholder(&w);
+    assert!(reloaded);
+    assert_eq!(v.phase, SwordholderPhase::Over);
+    assert_eq!(v.ending, Some(SwordholderEnding::Peace));
+    assert_eq!((v.elected, v.swordholder), (Some(2), 2));
+    assert!(v.decision.is_none());
+    // 只有两位候选人的演说：现任执剑人的两句、选民表态和三体代表的宣布都没有
+    let occasions: Vec<&str> = v.lines.iter().map(|l| l.occasion.as_str()).collect();
+    assert_eq!(occasions, ["演说", "演说"]);
+    // 11:00 交接完就收场，不用等到 19:00
+    assert!(w.minutes() < 12.0 * HOUR, "{}", w.minutes());
+    w.set_game_mode(None).unwrap();
+    no_trace(&w);
+}
+
+fn storyline(w: &World) -> StorylineView {
+    match w.game_mode_view() {
+        Some(GameModeView::Storyline(v)) => v,
+        other => panic!("开着的该是故事模式：{other:?}"),
+    }
+}
+
+fn story_context(w: &World, id: &str) -> protocol::StorylineContext {
+    match w.game_mode_context(id) {
+        Some(GameModeContext::Storyline(c)) => c,
+        other => panic!("{id} 的模型该看到故事这一栏：{other:?}"),
+    }
+}
+
+/// 四个角色、三个节拍、四个里程碑的一本剧本：08:00 开场，10:00 在甲地开一场三个人轮流说话的戏，
+/// 12:00 乙地的一幕，13:00 收场。
+fn lighthouse_script() -> StorylineScript {
+    let role = |role: &str, goal: &str, secret: Option<&str>| StorylineRole {
+        role: role.into(),
+        goal: goal.into(),
+        secret: secret.map(str::to_owned),
+    };
+    let beat =
+        |id: &str, title: &str, minute: u32, place: Option<&str>, who: &[u32]| StorylineBeat {
+            id: id.into(),
+            title: title.into(),
+            day: 1,
+            minute,
+            place: place.map(str::to_owned),
+            who: who.to_vec(),
+            announce: format!("{title}开始了。"),
+            brief: None,
+            scene: None,
+        };
+    let milestone = |id: &str, title: &str, when: StorylineWhen, secret: bool| StorylineMilestone {
+        id: id.into(),
+        title: title.into(),
+        detail: format!("{title}发生了"),
+        when,
+        secret,
+    };
+    StorylineScript {
+        title: "灯塔之约".into(),
+        premise: "灯塔要关了，镇上的人得在今天定下它的去留。".into(),
+        cast: vec![
+            role("守塔人", "把灯塔留下来", None),
+            role("镇长", "把灯塔卖掉还债", Some("债是你自己欠下的")),
+            role("渔夫", "弄清谁在说谎", None),
+            role("外乡人", "买下灯塔", None),
+        ],
+        beats: vec![
+            beat("morning", "晨雾", 480, None, &[]),
+            StorylineBeat {
+                brief: Some("轮到你时把立场说清楚。".into()),
+                scene: Some(StorylineScene {
+                    speakers: vec![1, 2, 3],
+                    minutes: 10,
+                    chars: 20,
+                }),
+                ..beat("council", "议事", 600, Some("甲地"), &[1, 2, 3])
+            },
+            beat("dusk", "码头的灯", 720, Some("乙地"), &[4]),
+        ],
+        milestones: vec![
+            milestone(
+                "opened",
+                "故事开场",
+                StorylineWhen::Beat {
+                    beat: "morning".into(),
+                },
+                false,
+            ),
+            milestone(
+                "met",
+                "码头密会",
+                StorylineWhen::Gather {
+                    place: "乙地".into(),
+                    seats: vec![3, 4],
+                    count: 2,
+                },
+                false,
+            ),
+            milestone(
+                "confessed",
+                "镇长认账",
+                StorylineWhen::Declare { seats: vec![2] },
+                true,
+            ),
+            milestone(
+                "saved",
+                "灯塔留下",
+                StorylineWhen::Declare { seats: vec![1] },
+                false,
+            ),
+        ],
+        ends_day: 1,
+        ends_minute: 780,
+        epilogue: Some("雾散了。".into()),
+    }
+}
+
+/// 故事模式照剧本走一整局：节拍到点宣布（和它有关的人被叫醒、听到叮嘱），戏里一次一人说话
+/// （一个人超时跳过、一段话超长截断），三种里程碑各达成一个、一个到收场也没达成；戏演到一半存档读档。
+/// 藏着的里程碑只有能宣布它的人知道；剧本对不上（先后排反、指了不存在的节拍、角色比村民多）开不了。
+#[test]
+fn storyline_fires_beats_runs_a_scene_tracks_milestones_and_ends() {
+    let people = [
+        ("r1", "阿塔", "loc_a"),
+        ("r2", "老镇", "loc_a"),
+        ("r3", "阿渔", "loc_a"),
+        ("r4", "远客", "loc_a"),
+    ];
+    let fresh = || {
+        let mut w = common::world_with(common::tiny_topology(), 7.0 * HOUR, &people);
+        w.set_physiology(PhysiologySwitches {
+            fullness: false,
+            energy: false,
+            water: false,
+            health: false,
+            weather: false,
+        });
+        w
+    };
+    let open = |w: &mut World, script: StorylineScript| {
+        w.set_game_mode(Some(&GameModeChoice::Storyline {
+            seed: Some(9),
+            script: Box::new(script),
+        }))
+    };
+    let mut w = fresh();
+    let mut backwards = lighthouse_script();
+    backwards.beats.swap(0, 1);
+    assert!(open(&mut w, backwards).is_err());
+    let mut dangling = lighthouse_script();
+    dangling.milestones[0].when = StorylineWhen::Beat {
+        beat: "nowhere".into(),
+    };
+    assert!(open(&mut w, dangling).is_err());
+    let mut crowded = lighthouse_script();
+    crowded.cast.push(crowded.cast[0].clone());
+    assert!(open(&mut w, crowded).is_err());
+    assert!(w.game_mode().is_none());
+
+    open(&mut w, lighthouse_script()).unwrap();
+    assert_eq!(w.game_mode(), Some("storyline"));
+    assert_eq!(w.game_mode_tempo(), 3.0);
+    let v = storyline(&w);
+    assert!(v
+        .beats
+        .iter()
+        .all(|b| b.state == StorylineBeatState::Upcoming));
+    assert_eq!(v.beats[1].place.as_deref(), Some("甲地"));
+    // 目标和秘密只有本人看得到；藏着的里程碑只有能宣布它的人知道
+    let mayor = story_context(&w, "r2");
+    assert_eq!(mayor.secret.as_deref(), Some("债是你自己欠下的"));
+    assert_eq!(mayor.actions, ["declare"]);
+    assert!(mayor.milestones.iter().any(|m| m.contains("镇长认账")));
+    let fisher = story_context(&w, "r3");
+    assert!(fisher.secret.is_none() && fisher.actions.is_empty());
+    assert!(!fisher.milestones.iter().any(|m| m.contains("镇长认账")));
+    assert!(fisher.cast.contains("老镇（镇长）"));
+
+    // 08:00 开场：所有人听到宣布，指着这个节拍的里程碑达成
+    w.step(1.1 * HOUR);
+    let v = storyline(&w);
+    assert_eq!(v.beats[0].state, StorylineBeatState::Done);
+    assert!(v.milestones[0].done);
+    assert!(story_context(&w, "r4").now.contains("晨雾"));
+
+    // 10:00 议事：三个人轮流说，叮嘱只有他们听到
+    w.step(2.0 * HOUR);
+    let v = storyline(&w);
+    assert_eq!(
+        (v.beats[1].state, v.turn),
+        (StorylineBeatState::Current, Some(1))
+    );
+    assert_eq!(w.game_mode_tempo(), 1.0);
+    let told = |w: &World, id: &str, words: &str| {
+        w.actor(id)
+            .unwrap()
+            .journal
+            .events_after(0)
+            .iter()
+            .any(|e| e.text.contains(words))
+    };
+    assert!(told(&w, "r1", "把立场说清楚"));
+    assert!(told(&w, "r4", "议事开始了") && !told(&w, "r4", "把立场说清楚"));
+    // 1 号轮到说话，另外还有一个由他宣布的里程碑
+    assert_eq!(
+        story_context(&w, "r1").actions,
+        ["speak", "pass", "declare"]
+    );
+    // 没轮到的人交不了
+    let early = GameModeAction {
+        action: "speak".into(),
+        target: None,
+        text: Some("我先说".into()),
+        reason: None,
+    };
+    assert!(w.game_mode_act("r3", &early).is_err());
+    mode_act(&mut w, "r1", "speak", None, Some("灯塔不能卖。"));
+    // 2 号不交，到点跳过；轮到 3 号时存档读档
+    assert_eq!(storyline(&w).turn, Some(2));
+    w.step(11.0);
+    let v = storyline(&w);
+    assert_eq!((v.turn, v.lines.len()), (Some(3), 1));
+    w = common::restore(&w, fresh());
+    assert_eq!(storyline(&w), v);
+    mode_act(
+        &mut w,
+        "r3",
+        "speak",
+        None,
+        Some("我只想知道是谁在说谎，这件事今天一定要有个交代才行。"),
+    );
+    let v = storyline(&w);
+    assert_eq!((v.turn, v.beats[1].state), (None, StorylineBeatState::Done));
+    assert_eq!(v.lines[1].text.chars().count(), 20);
+    assert!(!v.lines[1].away);
+
+    // 2 号宣布藏着的里程碑：别人的经历里没有这一条，旁观的人看得到是谁宣布的
+    let mut confess = early.clone();
+    confess.action = "declare".into();
+    confess.target = Some("saved".into());
+    assert!(w.game_mode_act("r2", &confess).is_err());
+    mode_act_on(
+        &mut w,
+        "r2",
+        "declare",
+        "confessed",
+        "我当着渔夫的面认了那笔债。",
+    );
+    let v = storyline(&w);
+    assert_eq!((v.milestones[2].done, v.milestones[2].by), (true, Some(2)));
+    assert!(!told(&w, "r3", "镇长认账"));
+    assert!(story_context(&w, "r2").actions.is_empty());
+
+    // 3 号和 4 号都到了乙地：密会达成
+    assert!(!storyline(&w).milestones[1].done);
+    for id in ["r3", "r4"] {
+        common::run(
+            &mut w,
+            id,
+            "to-dock",
+            json!({"intent": {"verb": "前往", "locale": "loc_b"}}),
+        )
+        .unwrap();
+        common::finish(&mut w, id, "to-dock");
+    }
+    w.step(6.0);
+    assert!(storyline(&w).milestones[1].done);
+
+    // 13:00 收场：没人宣布的那一项算没达成，工具收走
+    let logged = w.step(4.0 * HOUR);
+    let v = storyline(&w);
+    assert!(v.ended);
+    assert_eq!(v.epilogue.as_deref(), Some("雾散了。"));
+    assert!(v.beats.iter().all(|b| b.state == StorylineBeatState::Done));
+    let missed: Vec<&str> = v
+        .milestones
+        .iter()
+        .filter(|m| m.missed)
+        .map(|m| m.id.as_str())
+        .collect();
+    assert_eq!(missed, ["saved"]);
+    let closing = logged
+        .iter()
+        .map(|Event::Log { text, .. }| text.as_str())
+        .find(|t| t.contains("故事收场"))
+        .expect("收场写进了世界日志");
+    assert!(closing.contains("没有达成：灯塔留下") && closing.contains("雾散了"));
+    assert!(!closing.contains("镇长认账"));
+    assert!(w.game_mode_tool("r1").is_none());
+    assert_eq!(w.game_mode_tempo(), 1.0);
+    w.set_game_mode(None).unwrap();
+    no_trace(&w);
+}
+
+/// 交一项带 target 是文字（里程碑编号）的玩法动作
+fn mode_act_on(w: &mut World, id: &str, action: &str, target: &str, text: &str) {
+    let action = GameModeAction {
+        action: action.into(),
+        target: Some(target.into()),
+        text: Some(text.into()),
+        reason: None,
+    };
+    let result = w.game_mode_act(id, &action);
+    assert!(result.is_ok(), "{id} 交 {action:?}：{result:?}");
+}
+
 fn wolf_context(w: &World, id: &str) -> protocol::WerewolfContext {
     match w.game_mode_context(id) {
         Some(GameModeContext::Werewolf(c)) => c,
@@ -643,7 +1044,7 @@ fn werewolf_judge_runs_a_whole_game_through_turns_deadlines_and_a_reload() {
     assert!(few
         .set_game_mode(Some(&GameModeChoice::Werewolf {
             seed: Some(3),
-            day_hours: None
+            day_hours: None,
         }))
         .is_err());
     assert!(few.game_mode().is_none());
@@ -920,7 +1321,8 @@ fn play_swordholder(press: bool) {
     assert!(few
         .set_game_mode(Some(&GameModeChoice::Swordholder {
             seed: Some(3),
-            day_hours: None
+            day_hours: None,
+            rules: None,
         }))
         .is_err());
     assert!(few.game_mode().is_none());
@@ -928,9 +1330,13 @@ fn play_swordholder(press: bool) {
     w.set_game_mode(Some(&GameModeChoice::Swordholder {
         seed: Some(5),
         day_hours: Some(8),
+        rules: None,
     }))
     .unwrap();
     assert_eq!(w.game_mode(), Some("swordholder"));
+    // 没改规则：存档里没有规则这一项，和加规则之前的存档一字不差
+    let saved = serde_json::to_value(w.snapshot()).unwrap();
+    assert!(saved["game_mode"]["swordholder"].get("rules").is_none());
     let v = swordholder(&w);
     let roles: Vec<SwordholderRole> = v.seats.iter().map(|s| s.role).collect();
     use SwordholderRole::*;

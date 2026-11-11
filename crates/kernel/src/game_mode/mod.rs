@@ -1,4 +1,4 @@
-//! 玩法：有自己的目标、时间表和输赢的一套规则（大逃杀的潮水圈、狼人杀、执剑人之夜……），一个世界同时最多开一个，随快照保存。
+//! 玩法：有自己的目标、时间表和输赢的一套规则（大逃杀的潮水圈、狼人杀、执剑人之夜、照剧本走的故事模式……），一个世界同时最多开一个，随快照保存。
 //! 本体只在这几处接玩法，见 `Rules`：推进时间时要停下来结算的时刻和到点结算（simulation.rs）、
 //! 身体的额外消耗（physiology）、名册里的状态（projection.rs）、给模型看的一栏（agent 的观察）、
 //! 模型交选择用的玩法动作（agent 的 mode_action 工具）、世界走几倍速（host 的正常速度）、
@@ -7,6 +7,7 @@
 //!
 //! 加一个玩法：在这个目录写一个文件，实现 `Rules`；再在下面的 `GameMode`、`each!` 和
 //! `World::set_game_mode` 里各加一项，协议那边在 protocol 的 game_mode 里加对应的类型。
+mod storyline;
 mod swordholder;
 mod tide;
 mod werewolf;
@@ -56,6 +57,11 @@ trait Rules {
     fn clash(&mut self, _world: &World, _actor: &str, _target: &str, _text: &str) {}
 }
 
+/// 一本故事模式的剧本合不合规（开局时也查这一遍）：故事编辑器交草稿前先问。
+pub fn check_storyline(script: &protocol::StorylineScript) -> Result<()> {
+    storyline::check(script)
+}
+
 /// 世界里开着的玩法。存档里写成 `{"tide": {...}}`。一个世界只有一份，各玩法大小不一不要紧。
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +70,7 @@ pub enum GameMode {
     Tide(tide::Tide),
     Werewolf(werewolf::Werewolf),
     Swordholder(swordholder::Swordholder),
+    Storyline(storyline::Storyline),
 }
 
 /// 对开着的玩法调同一个 `Rules` 方法。
@@ -73,6 +80,7 @@ macro_rules! each {
             GameMode::Tide($m) => $body,
             GameMode::Werewolf($m) => $body,
             GameMode::Swordholder($m) => $body,
+            GameMode::Storyline($m) => $body,
         }
     };
 }
@@ -101,6 +109,10 @@ impl World {
                     GameModeChoice::Swordholder { .. },
                     Some(GameMode::Swordholder(_))
                 )
+                | (
+                    GameModeChoice::Storyline { .. },
+                    Some(GameMode::Storyline(_))
+                )
         );
         if same {
             return Ok(());
@@ -113,8 +125,18 @@ impl World {
             GameModeChoice::Werewolf { seed, day_hours } => GameMode::Werewolf(
                 werewolf::Werewolf::open(self, seed.unwrap_or(1).max(1), *day_hours)?,
             ),
-            GameModeChoice::Swordholder { seed, day_hours } => GameMode::Swordholder(
-                swordholder::Swordholder::open(self, seed.unwrap_or(1).max(1), *day_hours)?,
+            GameModeChoice::Swordholder {
+                seed,
+                day_hours,
+                rules,
+            } => GameMode::Swordholder(swordholder::Swordholder::open(
+                self,
+                seed.unwrap_or(1).max(1),
+                *day_hours,
+                rules.as_ref(),
+            )?),
+            GameModeChoice::Storyline { seed, script } => GameMode::Storyline(
+                storyline::Storyline::open(self, seed.unwrap_or(1).max(1), script)?,
             ),
         };
         self.game_mode = Some(mode);

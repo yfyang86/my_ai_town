@@ -53,6 +53,9 @@ pub struct ReflectionBatch {
     pub day: i64,
     pub event_ids: Vec<u64>,
     pub reason: String,
+    /// 做梦的一批：交给模型的记忆编号。平常的整理没有这一项
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dream: Vec<u64>,
 }
 
 /// 重要通知和双方邀请先响应；首次请求前也不整理。
@@ -119,6 +122,24 @@ pub fn plan_reflection(world: &World, session: &Session) -> Option<ReflectionBat
     if let Some(batch) = &book.request {
         return Some(batch.clone());
     }
+    // 睡醒了先做梦：材料是上次做梦以后要紧的记忆，不动整理的进度
+    if session.memory.dream.pending {
+        let material = session.memory.dream_material();
+        if material.len() >= crate::memory::dream::MIN_MATERIAL {
+            let mut event_ids: Vec<u64> =
+                material.iter().flat_map(|m| m.event_ids.clone()).collect();
+            event_ids.sort_unstable();
+            event_ids.dedup();
+            return Some(ReflectionBatch {
+                from: book.through_event,
+                through: book.through_event,
+                day: kernel::calendar::day_index(world.minutes()),
+                event_ids,
+                reason: "睡了一觉，梦里整理".into(),
+                dream: material.iter().map(|m| m.memory_id).collect(),
+            });
+        }
+    }
     let episodes: Vec<_> = session
         .memory
         .records
@@ -157,6 +178,7 @@ pub fn plan_reflection(world: &World, session: &Session) -> Option<ReflectionBat
             "新增经历积累"
         }
         .into(),
+        dream: Vec::new(),
     })
 }
 

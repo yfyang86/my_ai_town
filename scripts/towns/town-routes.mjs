@@ -25,6 +25,13 @@ export function createTownRoutes({ source, storage, hosts, serial }) {
         })),
       }),
     ],
+    // 选择小镇页不显示哪些剧本：只是不列出来，已经开过的那一局的存档不动
+    ['GET', /^\/api\/towns\/prefabs$/, () => storage.launcher()],
+    [
+      'POST',
+      /^\/api\/towns\/prefabs$/,
+      ({ body }) => serial('launcher', () => storage.setLauncher(body)),
+    ],
     [
       'GET',
       /^\/api\/towns\/([a-z0-9-]+)\/map$/,

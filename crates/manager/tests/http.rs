@@ -149,6 +149,23 @@ fn town_api_needs_session_and_static_files_stay_in_web_dir() {
         assert!(response.contains(id), "{response}");
     }
 
+    // 选择小镇页不显示哪些剧本：和电脑上的管理服务一样的接口，编号不合规矩的整份拒收
+    let hidden = serde_json::json!({ "hidden": ["werewolf", "swordholder", "werewolf"] });
+    let (status, saved) = post(&manager, "/prefabs", &hidden);
+    assert_eq!(status, 200);
+    assert_eq!(
+        saved["hidden"],
+        serde_json::json!(["swordholder", "werewolf"])
+    );
+    let bad = serde_json::json!({ "hidden": ["../x"] });
+    assert_eq!(post(&manager, "/prefabs", &bad).0, 400);
+    let (status, response) = manager.get("/api/towns/prefabs", &cookie);
+    assert_eq!(status, 200);
+    assert!(
+        response.contains(r#"["swordholder","werewolf"]"#),
+        "{response}"
+    );
+
     // 写操作还要应用自己的请求头：别的网页带不上，就发不出跨站请求
     let post = format!(
         "POST /api/towns/default-town/close HTTP/1.1\r\nHost: 127.0.0.1\r\n{cookie}Content-Type: text/plain\r\n"
@@ -209,6 +226,37 @@ fn created_maps_are_validated_before_they_become_towns() {
     assert_eq!(status, 200, "{draft}");
     assert_eq!(draft["version"], map["content_hash"]);
 
+    // 故事编辑器：页面改过的故事草稿送来理一遍（和电脑上的管理服务同一个接口），越界的收进范围；
+    // 草稿随建镇说明存进小镇，太大的不收
+    let choices = serde_json::json!({
+        "kinds": [{ "kind": "plaza", "name": "广场" }],
+        "presets": [{ "id": "coastal-village", "name": "海岸乡镇" }],
+    });
+    let mut request = choices.clone();
+    request["draft"] = serde_json::json!({
+        "title": "丢钟记",
+        "cast": [{ "name": "阿钟", "role": "敲钟人", "goal": "找回钟" }, { "name": "小贼" }],
+        "places": [{ "kind": "plaza", "name": "钟楼广场" }],
+        "beats": [{ "id": "Lost", "title": "钟丢了", "day": 1, "minute": 5000, "place": "广场",
+                    "who": [1, 9], "announce": "钟不见了。" }],
+        "milestones": [{ "id": "found", "title": "找到了", "when": { "kind": "declare", "seats": [1] } }],
+    });
+    let (status, story) = post(&manager, "/story", &request);
+    assert_eq!(status, 200, "{story}");
+    let beat = &story["draft"]["beats"][0];
+    assert_eq!(beat["id"], "lost");
+    assert_eq!(beat["minute"], 1439);
+    assert_eq!(beat["place"], "钟楼广场");
+    assert_eq!(beat["who"], serde_json::json!([1]));
+    let mut empty = choices.clone();
+    empty["draft"] = serde_json::json!({ "title": "空的" });
+    assert_eq!(post(&manager, "/story", &empty).0, 400);
+    let big = serde_json::json!({
+        "draft_id": draft["id"], "request_id": "big", "expected_version": draft["version"],
+        "creation": { "scenario": { "blob": "x".repeat(70000) } },
+    });
+    assert_eq!(post(&manager, "/save", &big).0, 400);
+
     // 版本对不上（页面拿着旧预览）：不保存。预览后改的名字随保存提交，只换名字、重算摘要
     let save = |version: &serde_json::Value| {
         post(
@@ -224,6 +272,7 @@ fn created_maps_are_validated_before_they_become_towns() {
                     "worldview": "这里的人想靠海吃饭。",
                     "residents": ["在村口酒馆当老板娘的寡妇"],
                     "prefab": "battle-royale",
+                    "scenario": story["draft"],
                 },
             }),
         )
@@ -241,6 +290,7 @@ fn created_maps_are_validated_before_they_become_towns() {
     // 一句话建镇的说明和小镇存在一起：列表简介是玩家那句话，条目里带着世界观建议和适合住进来的人
     assert!(list.contains("海边的小渔村，村口有一家小酒馆"), "{list}");
     assert!(list.contains("在村口酒馆当老板娘的寡妇"), "{list}");
+    assert!(list.contains("钟楼广场"), "{list}");
     // 从预制小镇开的一局记着是哪个预制小镇，进镇时据此出开局设置
     assert!(list.contains(r#""prefab":"battle-royale""#), "{list}");
     let saved: serde_json::Value = serde_json::from_slice(

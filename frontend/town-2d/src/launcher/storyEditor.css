@@ -1,0 +1,158 @@
+/* 故事编辑器（storyEditor.ts）：盖住选择小镇页的一整页，中间一列，上面标题、中间滚动、底下按钮。 */
+.story-town-button .story-town-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.story-editor {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  justify-items: center;
+  background: var(--ui-stage);
+  color: var(--ui-ink);
+  font-family: var(--ui-font);
+  font-size: 14px;
+}
+.story-editor[hidden] {
+  display: none;
+}
+.story-editor *,
+.story-editor *::before,
+.story-editor *::after {
+  box-sizing: border-box;
+}
+.story-editor > * {
+  width: min(760px, 100%);
+  padding: 0 max(20px, env(safe-area-inset-left));
+}
+.story-editor > header {
+  position: relative;
+  padding-top: max(20px, env(safe-area-inset-top));
+  padding-bottom: 12px;
+}
+.story-editor h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+.story-editor header p {
+  margin: 0;
+  padding-right: 70px;
+  color: var(--ui-ink-muted);
+}
+.story-editor .story-close {
+  position: absolute;
+  top: max(18px, env(safe-area-inset-top));
+  right: max(20px, env(safe-area-inset-right));
+}
+.story-body {
+  overflow-y: auto;
+  padding-bottom: 20px;
+}
+.story-editor > footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 12px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--ui-line-strong);
+}
+.story-status {
+  flex: 1 1 100%;
+  margin: 0;
+}
+.story-editor button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ui-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.story-editor button.primary {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent);
+  color: #fff;
+}
+.story-editor button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.story-editor :is(input, textarea, select) {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-ink);
+  font: inherit;
+}
+.story-editor input[type='checkbox'] {
+  width: auto;
+  min-height: 0;
+}
+.story-editor textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+.story-editor textarea.story-outline {
+  min-height: 240px;
+}
+.story-model {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.story-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin: 10px 0;
+}
+.story-row > * {
+  flex: 1 1 140px;
+}
+.story-field {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+}
+.story-field > span,
+.story-field > small {
+  color: var(--ui-ink-muted);
+  font-size: 12px;
+}
+.story-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+}
+.story-group {
+  margin-top: 18px;
+}
+.story-group h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.story-card {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 10px;
+}
+.story-card > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.story-card > button {
+  margin-top: 6px;
+}

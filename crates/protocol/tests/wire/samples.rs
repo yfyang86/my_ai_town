@@ -105,6 +105,13 @@ fn agent_view() -> ResidentAgentView {
                 }),
             }],
         }],
+        dreams: vec![ResidentDreamView {
+            day: 2,
+            at: 1820.0,
+            text: "我在一座没有门的图书馆里找公告栏。".into(),
+            insights: 1,
+            let_go: 2,
+        }],
         daily_calls: 3,
         daily_limit: 120,
         daily_tokens: 12_000,
@@ -1415,11 +1422,167 @@ fn swordholder_roster() -> ServerMsg {
     roster
 }
 
+/// 一本最小的剧本：角色、带一场戏的节拍、三种里程碑各一个。
+fn storyline_script() -> StorylineScript {
+    StorylineScript {
+        title: "灯塔之约".into(),
+        premise: "灯塔要关了，镇上的人得在今天定下它的去留。".into(),
+        cast: vec![
+            StorylineRole {
+                role: "守塔人".into(),
+                goal: "把灯塔留下来".into(),
+                secret: None,
+            },
+            StorylineRole {
+                role: "镇长".into(),
+                goal: "把灯塔卖掉还债".into(),
+                secret: Some("债是你自己欠下的".into()),
+            },
+        ],
+        beats: vec![StorylineBeat {
+            id: "council".into(),
+            title: "议事".into(),
+            day: 1,
+            minute: 600,
+            place: Some("广场".into()),
+            who: vec![1, 2],
+            announce: "钟响了，大家到广场议事。".into(),
+            brief: Some("轮到你时把立场说清楚。".into()),
+            scene: Some(StorylineScene {
+                speakers: vec![1, 2],
+                minutes: 10,
+                chars: 200,
+            }),
+        }],
+        milestones: vec![
+            StorylineMilestone {
+                id: "opened".into(),
+                title: "议事开始".into(),
+                detail: "钟响了".into(),
+                when: StorylineWhen::Beat {
+                    beat: "council".into(),
+                },
+                secret: false,
+            },
+            StorylineMilestone {
+                id: "met".into(),
+                title: "码头密会".into(),
+                detail: "两个人都到了码头".into(),
+                when: StorylineWhen::Gather {
+                    place: "码头".into(),
+                    seats: vec![1, 2],
+                    count: 2,
+                },
+                secret: false,
+            },
+            StorylineMilestone {
+                id: "confessed".into(),
+                title: "镇长认账".into(),
+                detail: "镇长当众承认了那笔债".into(),
+                when: StorylineWhen::Declare { seats: vec![2] },
+                secret: true,
+            },
+        ],
+        ends_day: 1,
+        ends_minute: 1200,
+        epilogue: Some("雾散了。".into()),
+    }
+}
+
+/// 名册里开着故事模式：时间线、里程碑、正在进行的戏和收场白都给全。
+fn storyline_roster() -> ServerMsg {
+    let mut roster = server_samples()
+        .into_iter()
+        .find(|m| matches!(m, ServerMsg::Roster { .. }))
+        .expect("有名册样本");
+    if let ServerMsg::Roster { game_mode, .. } = &mut roster {
+        *game_mode = Some(GameModeView::Storyline(StorylineView {
+            title: "灯塔之约".into(),
+            notice: "议事".into(),
+            seats: vec![
+                StorylineSeat {
+                    seat: 1,
+                    id: "resident_001".into(),
+                    name: "阿塔".into(),
+                    role: "守塔人".into(),
+                    gone: false,
+                },
+                StorylineSeat {
+                    seat: 2,
+                    id: "resident_002".into(),
+                    name: "老镇".into(),
+                    role: "镇长".into(),
+                    gone: true,
+                },
+            ],
+            beats: vec![
+                StorylineBeatView {
+                    id: "morning".into(),
+                    title: "晨雾".into(),
+                    at: 480.0,
+                    place: None,
+                    state: StorylineBeatState::Done,
+                },
+                StorylineBeatView {
+                    id: "council".into(),
+                    title: "议事".into(),
+                    at: 600.0,
+                    place: Some("广场".into()),
+                    state: StorylineBeatState::Current,
+                },
+                StorylineBeatView {
+                    id: "dusk".into(),
+                    title: "码头的灯".into(),
+                    at: 1080.0,
+                    place: Some("码头".into()),
+                    state: StorylineBeatState::Upcoming,
+                },
+            ],
+            milestones: vec![
+                StorylineMilestoneView {
+                    id: "confessed".into(),
+                    title: "镇长认账".into(),
+                    detail: "镇长当众承认了那笔债".into(),
+                    done: true,
+                    missed: false,
+                    at: Some(612.0),
+                    by: Some(2),
+                    text: Some("我当着大家的面认了。".into()),
+                },
+                StorylineMilestoneView {
+                    id: "saved".into(),
+                    title: "灯塔留下".into(),
+                    detail: "灯塔没有被卖掉".into(),
+                    done: false,
+                    missed: true,
+                    at: None,
+                    by: None,
+                    text: None,
+                },
+            ],
+            turn: Some(1),
+            until: Some(620.0),
+            lines: vec![StorylineLine {
+                seat: 2,
+                occasion: "议事".into(),
+                text: "灯塔必须卖。".into(),
+                at: 605.0,
+                away: true,
+                reason: Some("先把话说死".into()),
+            }],
+            ended: true,
+            epilogue: Some("雾散了。".into()),
+        }));
+    }
+    roster
+}
+
 pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
     (
         vec![
             werewolf_roster(),
             swordholder_roster(),
+            storyline_roster(),
             // 玩法里说的一段话：日志正文照旧，另带发言人、座号、场合和原话
             ServerMsg::Event {
                 sim_minutes: 2588.0,
@@ -1471,11 +1634,37 @@ pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
                 }),
             },
             ClientMsg::SetGameMode {
+                request_id: "mode-4".into(),
+                world_id: "w1".into(),
+                game_mode: Some(GameModeChoice::Storyline {
+                    seed: Some(9),
+                    script: Box::new(storyline_script()),
+                }),
+            },
+            ClientMsg::SetGameMode {
                 request_id: "mode-3".into(),
                 world_id: "w1".into(),
                 game_mode: Some(GameModeChoice::Swordholder {
                     seed: Some(62),
                     day_hours: Some(8),
+                    rules: Some(SwordholderRules {
+                        bell: Some(900),
+                        meet: Some(930),
+                        handover: Some(1080),
+                        speak_minutes: Some(10),
+                        vote_minutes: Some(10),
+                        appoint_minutes: Some(5),
+                        handover_minutes: Some(5),
+                        attack_delay: Some(3),
+                        attack_minutes: Some(8),
+                        statement_minutes: Some(10),
+                        free_tempo: Some(4),
+                        opening_remark: Some(false),
+                        stances: Some(true),
+                        handover_remark: Some(false),
+                        attack: Some(true),
+                        statement: Some(false),
+                    }),
                 }),
             },
             avatar(AvatarCommand::Action {
