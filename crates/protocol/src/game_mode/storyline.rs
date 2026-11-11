@@ -58,6 +58,9 @@ pub struct StorylineBeat {
     pub brief: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scene: Option<StorylineScene>,
+    /// 这个节拍开出来的检定（要开着规则套件才有用；没开时不出现）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<super::StorylineCheck>,
 }
 
 /// 一场戏：这几个座号按次序一次一人说话，每人有期限和字数上限
@@ -99,6 +102,8 @@ pub enum StorylineWhen {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         seats: Vec<u32>,
     },
+    /// 有人通过了这项检定（要开着规则套件）
+    Check { check: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -190,6 +195,9 @@ pub struct StorylineView {
     pub ended: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epilogue: Option<String>,
+    /// 开着规则套件时：角色卡和掷过的骰
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ruleset: Option<super::RulesetView>,
 }
 
 /// 给模型看的故事：自己是谁、想要什么、此刻发生了什么、接下来是什么
@@ -214,4 +222,10 @@ pub struct StorylineContext {
     /// 此刻能用 mode_action 交的动作
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<String>,
+    /// 开着规则套件时：自己的角色卡
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<String>,
+    /// 开着规则套件时：此刻自己能试的检定
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<String>,
 }

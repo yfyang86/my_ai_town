@@ -16,6 +16,8 @@ trait Rules {
     fn tool(&self, world: &World, actor: &str) -> Option<String> { None }     // mode_action description
     fn act(&mut self, world, actor, action: &GameModeAction) -> Result<String>;
     fn clash(&mut self, world, actor, target, text) {} // someone used force on someone
+    fn judge(&self, world, actor, draft: &ActionDraft) -> Result<()> { Ok(()) } // may refuse a core action
+    fn takes_params(&self) -> bool { false }           // mode_action gets a `with` map
 }
 ```
 
@@ -30,6 +32,8 @@ The core calls these and nothing else. The mode is taken out of the world while 
 | `tool`, `act` | `agent/src/tools.rs` — the `mode_action` tool |
 | `tempo` | `host/src/runtime.rs` |
 | `clash` | `kernel/src/force.rs`, prop harm in physiology |
+| `judge` | `kernel/src/action_commands.rs`, before an agent's action group is queued (not for the player's avatar). One refusal rejects the whole group |
+| `takes_params` | `agent/src/tools.rs` — adds `with` to the `mode_action` schema only when true |
 
 What a mode does to the world today: write journal facts, send notices, interrupt actions, log (including speech), place and remove props, hurt or remove residents. It does not teleport anyone and has no generic way to forbid core actions.
 
@@ -40,7 +44,7 @@ What a mode does to the world today: write journal facts, send notices, interrup
 | `GameModeChoice` | Client → host: which mode and its settings. Tagged by `kind`. Absent = close |
 | `GameModeView` | Host → clients with every roster. Tagged by `kind` |
 | `GameModeContext` | What one resident's model sees. Untagged; keyed by `key()` |
-| `GameModeAction` | `{action, target?, text?, reason?}` — shared by all modes |
+| `GameModeAction` | `{action, target?, text?, reason?, with?}` — shared by all modes; `with` is a map of short named strings, absent unless the open mode asks for it |
 
 ## The modes
 
@@ -102,6 +106,25 @@ It is deliberately soft. Nobody is moved; a beat says what happens and a residen
 Limits (refused at open with a reason): 2–12 seats, 1–24 beats in time order, ≤ 12 milestones, ids unique and resolvable, 14 days at most, text lengths capped.
 
 The first script is hand-written: `frontend/town-shared/src/prefabs/lighthouse.ts` (灯塔之约).
+
+## Rulesets
+
+A **ruleset** is an optional layer of mechanics on the storyline mode: what characters attempt is resolved by rules and dice instead of by declaration. `GameModeChoice::Storyline.ruleset` selects one; without it the storyline is byte-for-byte what it was.
+
+Only one exists: **fifth-edition rules** from SRD 5.1 (`RulesetChoice::Srd5`), in `kernel/src/game_mode/srd5.rs`. Attribution is in `NOTICE` and `licenses/SRD-5.1.txt`; only SRD material may be added, and the product calls it 「第五版规则」.
+
+| Piece | Where | Notes |
+| --- | --- | --- |
+| Dice | `game_mode/dice.rs` | Seeded splitmix64 with rejection sampling; state is saved, so a reload continues the same sequence. The kernel is the only thing that rolls |
+| Sheet | `Srd5Sheet` | Class label (fighter, rogue, cleric, wizard), level 1–3, six abilities, skill proficiencies. Validated at open |
+| Check | `StorylineCheck` on a beat | DC, who may try, one or more ways (ability, optional skill). Open once its beat has fired |
+| Resolution | `Srd5::attempt` | d20 + ability modifier + proficiency if proficient vs. DC. One attempt per seat; a passed check closes for everyone |
+| Milestone | `StorylineWhen::Check` | Reached when someone passes; invisible when no ruleset is on |
+| Roll log | `RulesetView.rolls` | Formula, dice, modifier, total, DC, outcome — last 40 |
+
+`mode_action check`: `target` is the check id; `with.skill` or `with.ability` picks the way (optional when there is only one). Each resident's context lists the checks open to them with *their own* bonus for each way, so the model can choose its best approach or leave it to someone better.
+
+With a ruleset on, `judge` refuses shoving, robbing and stealing: harming someone will go through combat rules. The plan for the rest (combat, magic, rest, progression, a model narrator) is in `Sprints/ruleset-5e/plan.md`.
 
 ## Adding a mode — checklist
 

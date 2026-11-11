@@ -381,6 +381,10 @@ pub fn life_definitions(world: &World, actor: &str) -> Vec<Value> {
     if let Some(description) = world.game_mode_tool(actor) {
         let mut definition = spec(ToolName::ModeAction).definition();
         definition["function"]["description"] = json!(description);
+        // 开着的玩法的动作要另带参数时（规则套件里用哪项技能……）才多一项 with；别的玩法的工具定义不变
+        if world.game_mode_takes_params() {
+            definition["function"]["parameters"] = schema::mode_action_with_params();
+        }
         list.push(definition);
     }
     list

@@ -19,7 +19,7 @@ A `Prefab` is a TS object: `worldview`, map `spec`, `gameMode`, `roster` (templa
 
 Options and rules are plain data, so a prefab can be produced by a tool rather than written by hand:
 
-- `PrefabOption` — a segmented row; `field` is a dotted path into the `GameModeChoice` (`day_hours`, `seed`), `number` parses the value.
+- `PrefabOption` — a segmented row; `field` is a dotted path into the `GameModeChoice` (`day_hours`, `seed`), `number` parses the value, and `values` maps each choice to an arbitrary JSON value (灯塔之约 uses it to attach a whole `ruleset`).
 - `PrefabRule` — a row inside the collapsed 「规则」 section: `kind` is `time`, `minutes` or `switch`, `field` is a path such as `rules.bell`, `initial` must equal the kernel default. Only edited rules are sent; an untouched section sends nothing.
 - `withField` / `applyOption` fold the picked values into the choice.
 

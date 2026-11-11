@@ -10,5 +10,12 @@ Required Notice: Copyright 2026 mewamew and contributors. https://github.com/mew
 项目素材的来源与分发范围见 licenses/ASSETS.txt；软件依赖见 licenses/DEPENDENCIES.txt。
 这里的授权不追溯变更旧 Godot 历史版本或其他权利人的作品许可。
 
+故事模式里可选的「第五版规则」（crates/protocol/src/game_mode/ruleset.rs、crates/kernel/src/game_mode/srd5.rs）
+按 System Reference Document 5.1 写成，署名与许可见 licenses/SRD-5.1.txt：
+This work includes material taken from the System Reference Document 5.1 ("SRD 5.1") by Wizards of the Coast LLC
+and available at https://dnd.wizards.com/resources/systems-reference-document. The SRD 5.1 is licensed under the
+Creative Commons Attribution 4.0 International License available at https://creativecommons.org/licenses/by/4.0/legalcode.
+本项目与 Wizards of the Coast 无关，也未获其认可；功能名称用「第五版规则」，不使用其商标作为名称。
+
 贡献代码应是贡献者有权提交的内容，并按本项目相应文件的许可提供。
 请勿提交 API 密钥、个人存档、模型权重或来源不明的素材。

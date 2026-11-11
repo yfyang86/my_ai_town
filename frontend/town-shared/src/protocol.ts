@@ -650,8 +650,8 @@ export type GameModeChoice =
   | { kind: 'werewolf'; seed?: number; day_hours?: number }
   /** 执剑人之夜：seed 定下演说和表态的先后、平票时抽签；day_hours 是白天自由活动几小时（天亮到敲钟）；rules 是改过的规则 */
   | { kind: 'swordholder'; seed?: number; day_hours?: number; rules?: SwordholderRules }
-  /** 故事模式：整本剧本带进来 */
-  | { kind: 'storyline'; seed?: number; script: StorylineScript }
+  /** 故事模式：整本剧本带进来；ruleset 是可选的规则套件（角色卡、检定……） */
+  | { kind: 'storyline'; seed?: number; script: StorylineScript; ruleset?: RulesetChoice }
 
 /** 潮水圈里的一个圈：圆心和半径都是行走地图上的米（x 和地面上的 z） */
 export interface TideCircle {
@@ -766,6 +766,46 @@ export interface StorylineScript {
   ends_minute: number
   epilogue?: string
 }
+/** 规则套件：现在只有第五版规则（SRD 5.1），sheets 是角色卡，按座号排 */
+export type RulesetChoice = { kind: 'srd5'; sheets: Srd5Sheet[] }
+export interface Srd5Sheet {
+  /** fighter、rogue、cleric、wizard */
+  class: string
+  /** 1–3 */
+  level: number
+  abilities: { str: number; dex: number; con: number; int: number; wis: number; cha: number }
+  /** 熟练的技能编号（athletics、stealth……） */
+  skills?: string[]
+}
+/** 节拍上的一项检定：难度 dc，可以用 ways 里的任一种办法试 */
+export interface StorylineCheck {
+  id: string
+  title: string
+  detail: string
+  dc: number
+  /** 能试的座号；不写是所有人 */
+  seats?: number[]
+  ways: { ability: string; skill?: string }[]
+}
+/** 掷的一次骰 */
+export interface DiceRoll {
+  at: number
+  seat: number
+  what: string
+  way: string
+  formula: string
+  dice: number[]
+  modifier: number
+  total: number
+  dc?: number
+  success?: boolean
+}
+export interface RulesetView {
+  id: string
+  /** 按座号排，每人的角色卡一行 */
+  sheets: string[]
+  rolls?: DiceRoll[]
+}
 export interface StorylineRole {
   /** 在故事里是谁，公开 */
   role: string
@@ -787,6 +827,8 @@ export interface StorylineBeat {
   brief?: string
   /** 一场戏：这几个座号按次序一次一人说话 */
   scene?: { speakers: number[]; minutes: number; chars: number }
+  /** 这个节拍开出来的检定（开着规则套件才有用） */
+  checks?: StorylineCheck[]
 }
 export interface StorylineMilestone {
   id: string
@@ -800,6 +842,7 @@ export type StorylineWhen =
   | { kind: 'beat'; beat: string }
   | { kind: 'gather'; place: string; seats?: number[]; count: number }
   | { kind: 'declare'; seats?: number[] }
+  | { kind: 'check'; check: string }
 export interface StorylineSeat {
   seat: number
   id: string
@@ -845,6 +888,8 @@ export interface StorylineView {
   lines?: StorylineLine[]
   ended?: boolean
   epilogue?: string
+  /** 开着规则套件时：角色卡和掷过的骰 */
+  ruleset?: RulesetView
 }
 
 /** 执剑人之夜的身份：按入住的号码，1 号现任执剑人，2、3 号候选人，4 号三体世界的代表，其余是选民 */

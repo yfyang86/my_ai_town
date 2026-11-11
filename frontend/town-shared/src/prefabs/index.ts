@@ -76,6 +76,8 @@ export interface PrefabOption {
   field: string
   /** 选好的值按数字写进去；不写按文字 */
   number?: boolean
+  /** 每个取值各写进去什么（一整块设置也行）；没列的取值什么都不写。有它时不看 number */
+  values?: Record<string, unknown>
 }
 
 /** 「规则」里的一项：钟点（当天第几分钟）、几分钟、或一个开关。initial 要和内核的默认一致，没改的不发 */
@@ -91,11 +93,7 @@ export interface PrefabRule {
 }
 
 /** 把一个值写进玩法设置里的一项（路径用点分开），不动原来的对象 */
-export function withField(
-  choice: GameModeChoice,
-  field: string,
-  value: string | number | boolean
-): GameModeChoice {
+export function withField(choice: GameModeChoice, field: string, value: unknown): GameModeChoice {
   const [head, ...rest] = field.split('.')
   const source = choice as unknown as Record<string, unknown>
   const inner =
@@ -113,6 +111,8 @@ export function applyOption(
   seed: number | null
 ): GameModeChoice {
   if (option.seed) return seed ? withField(choice, option.field, seed) : choice
+  if (option.values)
+    return value in option.values ? withField(choice, option.field, option.values[value]) : choice
   return withField(choice, option.field, option.number ? Number(value) : value)
 }
 

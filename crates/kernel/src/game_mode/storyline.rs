@@ -5,13 +5,15 @@
 //! 里程碑有三种算法：某个节拍发生了；几个人同时在某个地点；有人用 declare 宣布它发生了并写上经过。
 //! 到了收场的时刻，把达成和没达成的里程碑说一遍，一局结束。
 //! 和执剑人之夜一样：只叫醒该做事的人，别人的话写进每个人的经历；期限按游戏分钟，挂在 boundary 上。
+use super::srd5::{self, Srd5};
 use super::Rules;
 use crate::error::{KernelError, Result};
 use crate::{World, DAY};
 use protocol::{
-    EventInfo, EventSpeech, FactKind, GameModeAction, GameModeContext, GameModeView,
-    StorylineBeatState, StorylineBeatView, StorylineContext, StorylineLine, StorylineMilestoneView,
-    StorylineScript, StorylineSeat, StorylineView, StorylineWhen,
+    ActionDraft, EventInfo, EventSpeech, FactKind, GameModeAction, GameModeContext, GameModeView,
+    RulesetChoice, RulesetView, StorylineBeatState, StorylineBeatView, StorylineCheck,
+    StorylineContext, StorylineLine, StorylineMilestoneView, StorylineScript, StorylineSeat,
+    StorylineView, StorylineWhen,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,6 +38,9 @@ const FREE_TEMPO: f64 = 3.0;
 /// 给模型看的戏里的话最多留多少段
 const RECENT_LINES: usize = 20;
 const EPS: f64 = 1e-6;
+/// 一个节拍上最多几项检定，一项检定最多几种试法
+const BEAT_CHECKS: usize = 6;
+const CHECK_WAYS: usize = 4;
 
 fn clip(text: &str, n: usize) -> (String, bool) {
     let text = text.trim();
@@ -123,6 +128,7 @@ pub(super) fn check(script: &StorylineScript) -> Result<()> {
         )));
     }
     let mut ids = BTreeSet::new();
+    let mut checks = BTreeSet::new();
     let mut last = 0u32;
     for b in &script.beats {
         let what = format!("节拍「{}」", b.id);
@@ -167,6 +173,37 @@ pub(super) fn check(script: &StorylineScript) -> Result<()> {
                 )));
             }
         }
+        for c in &b.checks {
+            let what = format!("检定「{}」", c.id);
+            if !is_id(&c.id) || !checks.insert(c.id.as_str()) {
+                return Err(bad(format!(
+                    "{what}的编号要用小写字母、数字、连字符，而且不能重复"
+                )));
+            }
+            text(&format!("{what}的标题"), &c.title, TITLE_CHARS)?;
+            text(&format!("{what}的说明"), &c.detail, DETAIL_CHARS)?;
+            seats_in(&format!("{what}的 seats"), &c.seats, cast)?;
+            if !srd5::DCS.contains(&c.dc) {
+                return Err(bad(format!(
+                    "{what}的难度要在 {}–{} 之间",
+                    srd5::DCS.start(),
+                    srd5::DCS.end()
+                )));
+            }
+            if c.ways.is_empty() || c.ways.len() > CHECK_WAYS {
+                return Err(bad(format!("{what}要有 1–{CHECK_WAYS} 种试法")));
+            }
+            let mut keys = BTreeSet::new();
+            for way in &c.ways {
+                srd5::check_way(way)?;
+                if !keys.insert(srd5::way_key(way)) {
+                    return Err(bad(format!("{what}的试法写重了")));
+                }
+            }
+        }
+        if b.checks.len() > BEAT_CHECKS {
+            return Err(bad(format!("{what}上的检定最多 {BEAT_CHECKS} 项")));
+        }
     }
     if !DAYS.contains(&script.ends_day) || script.ends_minute >= DAY as u32 {
         return Err(bad("收场的时刻不对"));
@@ -209,6 +246,11 @@ pub(super) fn check(script: &StorylineScript) -> Result<()> {
                 }
             }
             StorylineWhen::Declare { seats } => seats_in(&format!("{what}的 seats"), seats, cast)?,
+            StorylineWhen::Check { check } => {
+                if !checks.contains(check.as_str()) {
+                    return Err(bad(format!("{what}指的检定「{check}」不在剧本里")));
+                }
+            }
         }
     }
     Ok(())
@@ -265,13 +307,27 @@ pub struct Storyline {
     pub reached: BTreeMap<String, Reached>,
     #[serde(default)]
     pub ended: bool,
+    /// 开着的规则套件（角色卡、骰子、检定的经过）；没开时存档里没有这一项
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<Srd5>,
 }
 
 impl Storyline {
     /// 按此刻在镇上的村民排座次（按编号，也就是入住的先后），人数要够剧本里的角色。
     /// 第一个节拍今天还来得及就从今天算第 1 天，否则从明天算。
-    pub(super) fn open(world: &World, seed: u32, script: &StorylineScript) -> Result<Self> {
+    pub(super) fn open(
+        world: &World,
+        seed: u32,
+        script: &StorylineScript,
+        ruleset: Option<&RulesetChoice>,
+    ) -> Result<Self> {
         check(script)?;
+        let rules = match ruleset {
+            Some(RulesetChoice::Srd5 { sheets }) => {
+                Some(Srd5::open(sheets, script.cast.len(), seed)?)
+            }
+            None => None,
+        };
         let mut ids: Vec<&String> = world
             .actors
             .iter()
@@ -333,6 +389,7 @@ impl Storyline {
             lines: Vec::new(),
             reached: BTreeMap::new(),
             ended: false,
+            rules,
         })
     }
 
@@ -594,7 +651,7 @@ impl Storyline {
             .script
             .milestones
             .iter()
-            .filter(|m| !m.secret)
+            .filter(|m| !m.secret && self.tracked(m))
             .partition(|m| self.reached.contains_key(&m.id));
         let names = |list: &[&protocol::StorylineMilestone]| {
             list.iter()
@@ -678,6 +735,11 @@ impl Storyline {
     }
 
     // ---------- 给模型 ----------
+
+    /// 这个里程碑此刻算不算数：靠检定达成的要开着规则套件才有，没开时哪里都不出现
+    fn tracked(&self, m: &protocol::StorylineMilestone) -> bool {
+        self.rules.is_some() || !matches!(m.when, StorylineWhen::Check { .. })
+    }
 
     /// 这个人能宣布的、还没达成的里程碑
     fn declarable(&self, i: usize) -> Vec<&protocol::StorylineMilestone> {
@@ -769,7 +831,7 @@ impl Storyline {
         self.script
             .milestones
             .iter()
-            .filter(|m| !m.secret || mine.contains(m.id.as_str()))
+            .filter(|m| self.tracked(m) && (!m.secret || mine.contains(m.id.as_str())))
             .map(|m| {
                 let state = if self.reached.contains_key(&m.id) {
                     "已达成"
@@ -852,6 +914,109 @@ impl Storyline {
         } else {
             "说完了，大家都听到了".into()
         })
+    }
+
+    // ---------- 检定（开着规则套件才有） ----------
+
+    /// 这个人此刻能试的检定：节拍已经发生、轮得到他、他还没试过、也还没人通过
+    fn open_checks(&self, i: usize) -> Vec<&StorylineCheck> {
+        let Some(rules) = &self.rules else {
+            return vec![];
+        };
+        self.script.beats[..self.next]
+            .iter()
+            .flat_map(|b| &b.checks)
+            .filter(|c| {
+                self.among(&c.seats).contains(&i)
+                    && !rules.has_tried(i, &c.id)
+                    && !rules.passed.contains_key(&c.id)
+            })
+            .collect()
+    }
+
+    /// 试一项检定：内核掷 d20 加上这个人的加值，和难度比；经过对所有人公布，通过了的里程碑随之达成。
+    fn attempt(&mut self, world: &mut World, i: usize, action: &GameModeAction) -> Result<String> {
+        if self.rules.is_none() {
+            return Err(bad("这个故事没有开规则，没有检定可试"));
+        }
+        let open = self.open_checks(i);
+        if open.is_empty() {
+            return Err(bad("现在没有你能试的检定"));
+        }
+        let raw = action.target.as_deref().map(str::trim).unwrap_or("");
+        let Some(check) = open
+            .iter()
+            .find(|c| c.id == raw || c.title.trim() == raw)
+            .map(|c| (*c).clone())
+        else {
+            let ids: Vec<&str> = open.iter().map(|c| c.id.as_str()).collect();
+            return Err(bad(format!(
+                "认不出 target「{raw}」：你能试的是 {}",
+                ids.join("、")
+            )));
+        };
+        // 用哪种试法：with 里的 skill 或 ability；只有一种试法时可以不填
+        let wanted = action
+            .with
+            .get("skill")
+            .or_else(|| action.with.get("ability"))
+            .map(|w| w.trim());
+        let way = match wanted {
+            Some(key) => check.ways.iter().find(|w| srd5::way_key(w) == key).cloned(),
+            None if check.ways.len() == 1 => check.ways.first().cloned(),
+            None => None,
+        };
+        let Some(way) = way else {
+            let keys: Vec<&str> = check.ways.iter().map(srd5::way_key).collect();
+            return Err(bad(format!(
+                "「{}」要说明用哪种办法：with 里填 skill 或 ability，能用的是 {}",
+                check.title.trim(),
+                keys.join("、")
+            )));
+        };
+        let now = world.minutes();
+        let roll = match &mut self.rules {
+            Some(rules) => rules.attempt(i, &check, &way, now),
+            None => return Err(bad("这个故事没有开规则，没有检定可试")),
+        };
+        let passed = roll.success == Some(true);
+        let verdict = if passed { "成功" } else { "失败" };
+        let said = action
+            .text
+            .as_deref()
+            .map(|t| clip(t, EVIDENCE_CHARS).0)
+            .filter(|t| !t.is_empty())
+            .map(|t| format!("（{t}）"))
+            .unwrap_or_default();
+        let line = format!(
+            "{}检定：{} 试「{}」{said}，用{}，掷 d20 得 {}，{:+} 共 {}，对难度 {}：{verdict}",
+            self.tag(),
+            self.label(i),
+            check.title.trim(),
+            roll.way,
+            roll.dice[0],
+            roll.modifier,
+            roll.total,
+            check.dc
+        );
+        self.tell(world, &self.everyone(), &line);
+        world.log(EventInfo::default(), line);
+        if passed {
+            let done: Vec<String> = self
+                .script
+                .milestones
+                .iter()
+                .filter(|m| matches!(&m.when, StorylineWhen::Check { check: c } if *c == check.id))
+                .map(|m| m.id.clone())
+                .collect();
+            for id in done {
+                self.reach(world, &id, now, Some(i), None);
+            }
+        }
+        Ok(format!(
+            "掷 d20 得 {}，{:+} 共 {}，对难度 {}：{verdict}",
+            roll.dice[0], roll.modifier, roll.total, check.dc
+        ))
     }
 
     fn declare(&mut self, world: &mut World, i: usize, action: &GameModeAction) -> Result<String> {
@@ -959,6 +1124,7 @@ impl Rules for Storyline {
             .script
             .milestones
             .iter()
+            .filter(|m| self.tracked(m))
             .map(|m| {
                 let r = self.reached.get(&m.id);
                 StorylineMilestoneView {
@@ -1008,6 +1174,11 @@ impl Rules for Storyline {
                 .clone()
                 .filter(|_| self.ended)
                 .map(|e| e.trim().to_string()),
+            ruleset: self.rules.as_ref().map(|r| RulesetView {
+                id: "srd5".into(),
+                sheets: (0..self.seats.len()).map(|i| r.sheet_line(i)).collect(),
+                rolls: r.rolls.clone(),
+            }),
         })
     }
 
@@ -1040,6 +1211,9 @@ impl Rules for Storyline {
             if !self.declarable(i).is_empty() {
                 actions.push("declare".into());
             }
+            if !self.open_checks(i).is_empty() {
+                actions.push("check".into());
+            }
         }
         let skip = self.lines.len().saturating_sub(RECENT_LINES);
         let today = self.lines[skip..]
@@ -1066,6 +1240,15 @@ impl Rules for Storyline {
             milestones: self.milestone_lines(i),
             today,
             actions,
+            sheet: self.rules.as_ref().map(|r| r.sheet_line(i)),
+            checks: match &self.rules {
+                Some(rules) if !self.ended && !self.seats[i].gone => self
+                    .open_checks(i)
+                    .into_iter()
+                    .map(|c| rules.check_line(i, c))
+                    .collect(),
+                _ => vec![],
+            },
         }))
     }
 
@@ -1075,14 +1258,36 @@ impl Rules for Storyline {
         if self.ended || self.seats[i].gone {
             return None;
         }
-        Some(
-            "故事里交选择。只在观察里 storyline.actions 列出时能用，此刻发生了什么、该做什么看 storyline.now。\
+        let base = "故事里交选择。只在观察里 storyline.actions 列出时能用，此刻发生了什么、该做什么看 storyline.now。\
 action：speak 在轮到你的那场戏里说话（text 写你要说的话）、pass 这一场不说、\
 declare 宣布一个里程碑达成了（target 填里程碑的编号，text 写发生了什么；只有 storyline.milestones 里写着由你宣布的才能交）。\
 reason 写为什么这么选（只给旁观的人看）。\
-故事只告诉你发生了什么、你想要什么；去哪里、找谁、说什么都由你自己定。"
-                .to_string(),
-        )
+故事只告诉你发生了什么、你想要什么；去哪里、找谁、说什么都由你自己定。";
+        // 开着规则套件：多一种动作。说明对每个人都一样；各人能试什么、加值多少写在 storyline.checks 里
+        Some(if self.rules.is_some() {
+            format!(
+                "{base}这个故事开着第五版规则：storyline.sheet 是你的角色卡，storyline.checks 是你此刻能试的检定。\
+check 试一项检定（target 填检定的编号；有几种办法时在 with 里填 skill 或 ability 选一种，text 写你具体怎么做）：\
+由骰子定成败——掷 d20 加上你这种办法的加值，不低于难度就成；每项检定每人只能试一次，所以挑你拿手的办法，或者让更拿手的人去试。\
+开着规则时不能直接对人推搡、抢、偷。"
+            )
+        } else {
+            base.to_string()
+        })
+    }
+
+    /// 开着规则套件时：对人动手要走规则里的战斗（还没开放），先都拦下来
+    fn judge(&self, _world: &World, _actor: &str, draft: &ActionDraft) -> Result<()> {
+        if self.rules.is_some() && !self.ended && crate::force::of_draft(draft).is_some() {
+            return Err(bad(
+                "这个故事开着第五版规则：对人动手要走规则里的战斗，现在还不能推搡、抢、偷",
+            ));
+        }
+        Ok(())
+    }
+
+    fn takes_params(&self) -> bool {
+        self.rules.is_some()
     }
 
     fn act(&mut self, world: &mut World, actor: &str, action: &GameModeAction) -> Result<String> {
@@ -1096,8 +1301,10 @@ reason 写为什么这么选（只给旁观的人看）。\
         match action.action.as_str() {
             "speak" | "pass" => self.speak(world, i, action),
             "declare" => self.declare(world, i, action),
+            "check" => self.attempt(world, i, action),
             other => Err(bad(format!(
-                "故事里没有「{other}」这个动作：能交的是 speak、pass、declare"
+                "故事里没有「{other}」这个动作：能交的是 speak、pass、declare{}",
+                if self.rules.is_some() { "、check" } else { "" }
             ))),
         }
     }

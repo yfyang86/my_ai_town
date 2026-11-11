@@ -144,24 +144,31 @@
 .st-beats li.current {
   border-left-color: #3aa55d;
 }
-.st-marks li {
+.st-marks li,
+.st-rolls li {
   display: grid;
   grid-template-columns: 14px 1fr;
   column-gap: 6px;
 }
-.st-marks i {
+.st-marks i,
+.st-rolls i {
   font-style: normal;
   color: var(--text-2);
 }
-.st-marks small {
+.st-marks small,
+.st-rolls small {
   grid-column: 2;
   color: var(--text-2);
 }
-.st-marks li.done i {
+.st-marks li.done i,
+.st-rolls li.done i {
   color: #3aa55d;
 }
 .st-marks li.missed {
   opacity: 0.55;
+}
+.st-rolls li.missed i {
+  color: var(--danger);
 }
 .st-marks li.missed b {
   text-decoration: line-through;

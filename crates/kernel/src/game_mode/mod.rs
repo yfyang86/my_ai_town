@@ -2,11 +2,13 @@
 //! 本体只在这几处接玩法，见 `Rules`：推进时间时要停下来结算的时刻和到点结算（simulation.rs）、
 //! 身体的额外消耗（physiology）、名册里的状态（projection.rs）、给模型看的一栏（agent 的观察）、
 //! 模型交选择用的玩法动作（agent 的 mode_action 工具）、世界走几倍速（host 的正常速度）、
-//! 人对人动手的经过（force.rs 和拿道具伤人）。
+//! 人对人动手的经过（force.rs 和拿道具伤人）、村民要做的事让不让（action_commands.rs 排动作之前）。
 //! 没开玩法时这些都不出现，存档、名册、设定和给模型的观察、工具表和没有玩法时一字不差。
 //!
 //! 加一个玩法：在这个目录写一个文件，实现 `Rules`；再在下面的 `GameMode`、`each!` 和
 //! `World::set_game_mode` 里各加一项，协议那边在 protocol 的 game_mode 里加对应的类型。
+mod dice;
+mod srd5;
 mod storyline;
 mod swordholder;
 mod tide;
@@ -16,7 +18,7 @@ use crate::actor::Actor;
 use crate::error::{KernelError, Result};
 use crate::physiology::{Rates, Trace};
 use crate::World;
-use protocol::{GameModeAction, GameModeChoice, GameModeContext, GameModeView};
+use protocol::{ActionDraft, GameModeAction, GameModeChoice, GameModeContext, GameModeView};
 use serde::{Deserialize, Serialize};
 
 /// 玩法接进本体的几处。玩法自己的状态在实现者里；本体的东西只通过 `world` 读写。
@@ -51,6 +53,15 @@ trait Rules {
         _action: &GameModeAction,
     ) -> Result<String> {
         Err(KernelError::action("这个玩法没有要交的动作"))
+    }
+    /// 村民要做一件平常的事（走动、用道具、对人动手……）之前先问玩法：不让做就说明原因。
+    /// 默认都让做；规则套件开着时用它把该走规则的事拦下来。
+    fn judge(&self, _world: &World, _actor: &str, _draft: &ActionDraft) -> Result<()> {
+        Ok(())
+    }
+    /// 玩法动作要不要另带参数（GameModeAction.with）：要的话工具定义里多一项 with
+    fn takes_params(&self) -> bool {
+        false
     }
     /// 有人对人动了手（推搡、抢、偷、搜身、拿道具伤人），text 是一句写好的经过，
     /// 比如「骆川用鱼叉刺白鸦，健康 −40」；玩法可以记进自己的战报。
@@ -135,9 +146,16 @@ impl World {
                 *day_hours,
                 rules.as_ref(),
             )?),
-            GameModeChoice::Storyline { seed, script } => GameMode::Storyline(
-                storyline::Storyline::open(self, seed.unwrap_or(1).max(1), script)?,
-            ),
+            GameModeChoice::Storyline {
+                seed,
+                script,
+                ruleset,
+            } => GameMode::Storyline(storyline::Storyline::open(
+                self,
+                seed.unwrap_or(1).max(1),
+                script,
+                ruleset.as_ref(),
+            )?),
         };
         self.game_mode = Some(mode);
         Ok(())
@@ -197,6 +215,23 @@ impl World {
         let result = each!(&mut mode, m => m.act(self, actor, action));
         self.game_mode = Some(mode);
         result
+    }
+
+    /// 村民排进一组动作之前问开着的玩法让不让（见 `Rules::judge`）；有一件不让，整组都不排。
+    pub(crate) fn game_mode_judge(&self, actor: &str, drafts: &[ActionDraft]) -> Result<()> {
+        let Some(g) = &self.game_mode else {
+            return Ok(());
+        };
+        drafts
+            .iter()
+            .try_for_each(|draft| each!(g, m => m.judge(self, actor, draft)))
+    }
+
+    /// 开着的玩法的动作要不要另带参数（见 `Rules::takes_params`）
+    pub fn game_mode_takes_params(&self) -> bool {
+        self.game_mode
+            .as_ref()
+            .is_some_and(|g| each!(g, m => m.takes_params()))
     }
 
     /// 有人对人动了手：告诉开着的玩法（见 `Rules::clash`）。
