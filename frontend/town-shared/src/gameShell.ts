@@ -18,6 +18,7 @@ import { reopenTown } from './townApi'
 import { installMobileChrome } from './mobile/chrome'
 import { createGuide, guideDone } from './mobile/guide'
 import { prefabOf } from './prefabs'
+import { scenarioPrefab } from './prefabs/scenario'
 import { createPrefabSetup } from './prefabs/setup'
 import { createTips } from './mobile/tips'
 import { trackMapInsets } from './mapView'
@@ -147,8 +148,9 @@ export function startGameShell(
     else if (tries > 0) setTimeout(() => lookAt(id, tries - 1), 100)
   }
   panels.registry.first(guide.panel)
-  // 预制小镇（建镇说明里记着 prefab）：第一次进镇时出开局设置，代替开局向导
-  const prefab = prefabOf(selectedMap.creation?.prefab)
+  // 预制小镇（建镇说明里记着 prefab）和故事编辑器建的小镇（记着故事草稿）：第一次进镇时出开局设置，代替开局向导
+  const prefab =
+    prefabOf(selectedMap.creation?.prefab) ?? scenarioPrefab(selectedMap.creation?.scenario)
   const prefabSetup = createPrefabSetup({
     send: connection.send,
     worldSettings: panels.worldSettings,

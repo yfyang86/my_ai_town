@@ -13,6 +13,7 @@ import { initCreator } from './creator'
 import { PREFABS, type Prefab } from 'town-shared/prefabs/index'
 import { generatePrefab, isBuiltinTown, missingPrefabs, prefabTownId } from './prefabEntry'
 import { api } from './api'
+import { initStoryEditor } from './storyEditor'
 import { warmSelectedGame } from '../startupWarmup'
 import { MUSIC_TRACKS } from 'town-shared/audio/catalog'
 import { createMusicController } from 'town-shared/audio/music'
@@ -963,6 +964,14 @@ initCreator(
     location.assign(gameUrl(runtime))
   }
 )
+// 写一个故事：模型把提纲排成角色、节拍和里程碑，过目后建成小镇（见 storyEditor.ts）
+initStoryEditor({
+  onSaved: async (id) => {
+    fitNext = id
+    await refresh(id)
+  },
+  connectModel: () => homeSettings.connect(),
+})
 // ← → 换到旁边那张明信片（赏景时这两个键归景色条换时刻；建镇页、设定页开着时不管）
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return

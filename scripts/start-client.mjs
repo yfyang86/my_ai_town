@@ -18,7 +18,8 @@ if (mode === 'preview') {
 exitOnCrash()
 if (mode === 'preview') await verifyClientBuild(root)
 console.log(`[town-client] ${mode} · ${root}`)
-const manager = await createManager({ port })
+// TOWN_MOCK_LLM=1：村民和故事编辑器都用固定回复的假模型，本机试玩法、跑界面检查时用
+const manager = await createManager({ port, mockLlm: process.env.TOWN_MOCK_LLM === '1' })
 if (mode === 'dev')
   client = spawn(
     process.execPath,

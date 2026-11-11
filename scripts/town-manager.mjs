@@ -77,6 +77,7 @@ export async function createManager({
       contours,
       definitions,
       serial,
+      mockLlm,
     })
   const builtinModel = createBuiltinModelRoutes({ source, config })
   const routes = [

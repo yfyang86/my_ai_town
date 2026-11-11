@@ -566,7 +566,15 @@ body:has(.map-launcher) {
 .create-town-slot {
   position: sticky;
   right: 0;
+  display: grid;
   flex: none;
+  gap: 9px;
+}
+/* 「创建小镇」和「写一个故事」上下各占半张卡片的高，图标和字横着排 */
+.launcher-strip .create-town-slot .create-town-button {
+  grid-auto-flow: column;
+  height: 64px;
+  gap: 6px;
 }
 .launcher-strip .create-town-button {
   display: grid;
@@ -833,9 +841,9 @@ body:has(.map-launcher) {
   .map-cover {
     height: 70px;
   }
-  .launcher-strip .create-town-button {
+  .launcher-strip .create-town-slot .create-town-button {
     width: 92px;
-    height: 127px;
+    height: 59px;
   }
 }
 /* 手机：同一套东西竖着排。右上三个钮只留图标；镇名、简介在上，明信片横着滑，
@@ -1023,9 +1031,9 @@ body:has(.map-launcher) {
   .launcher-strip {
     scroll-padding: 0 12px;
   }
-  .launcher-strip .create-town-button {
+  .launcher-strip .create-town-slot .create-town-button {
     width: 84px;
-    height: 117px;
+    height: 54px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

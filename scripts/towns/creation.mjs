@@ -8,6 +8,7 @@ import { safeId, townCreation } from './storage.mjs'
 import { runGeneration } from '../mapgen/worker.mjs'
 import { validateSpec, limits, resources, MAX_SEED } from '../mapgen/spec.mjs'
 import { plannerKinds, tidyPlan } from '../mapgen/plan.mjs'
+import { STYLE_PRESETS } from '../../frontend/town-2d/src/map/themes/presets.ts'
 import { hashDocument, seal } from '../mapgen/document.mjs'
 import { APPEARANCE_SET, GenerationError, PARAMETERS } from '../mapgen/budget.mjs'
 
@@ -101,6 +102,7 @@ export function createCreation({
   contours,
   definitions,
   serial,
+  mockLlm = false,
 }) {
   const drafts = new DraftStore(),
     tasks = new GenerationTasks()
@@ -169,6 +171,24 @@ export function createCreation({
       return result
     })
 
+  // 故事编辑器：提纲交给模型写成故事草稿，或把页面改过的草稿理一遍（crates/host/src/story.rs）。
+  // 能用哪些地点、哪些风格由生成器这边给；mock 只由管理服务自己定，页面带来的不算。
+  const story = (body, signal) =>
+    admit(() =>
+      worker(
+        source,
+        config,
+        'story',
+        {
+          ...body,
+          kinds: plannerKinds(library.templates),
+          presets: STYLE_PRESETS.map(({ id, name }) => ({ id, name })),
+          mock: mockLlm,
+        },
+        { signal }
+      )
+    )
+
   async function preview2d(body, signal) {
     const taskId = tasks.begin(body.request_id ?? randomUUID()),
       stage = (s) => tasks.update(taskId, { stage: s })
@@ -231,6 +251,7 @@ export function createCreation({
 
   const routes = [
     ['GET', /^\/api\/towns\/options$/, options],
+    ['POST', /^\/api\/towns\/story$/, ({ body, signal }) => story(body, signal)],
     ['POST', /^\/api\/towns\/parse$/, ({ body, signal }) => parse(body, signal)],
     ['POST', /^\/api\/towns\/preview$/, ({ body, signal }) => preview(body, signal)],
     ['POST', /^\/api\/towns\/save$/, ({ body }) => save(body)],

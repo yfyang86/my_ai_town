@@ -35,6 +35,16 @@ From card to running game:
 
 The world stays paused until the player presses play.
 
+## Story editor
+
+`town-2d/src/launcher/storyEditor.ts` — 「写一个故事」 on the selection page.
+
+1. **Outline** — a story or outline (≤ 6000 chars), number of characters, number of days. `POST /api/towns/story` asks the connected model for a **story draft**.
+2. **Review** — every field of the draft is editable; beats, places and milestones can be added and removed.
+3. **Build** — the draft goes back through `/story` (tidied and checked with the same rules the kernel applies at open), the map is generated from the draft's places (`specOf`), and the town is saved with `creation.scenario = draft`.
+
+`town-shared/src/prefabs/scenario.ts` holds the `StoryDraft` type and turns a draft into a generator spec (`specOf`), a storyline script (`scriptOf`) and a `Prefab` (`scenarioPrefab`). The game shell uses `prefabOf(creation.prefab) ?? scenarioPrefab(creation.scenario)`, so a story town opens the same setup screen as a hand-written scripted town.
+
 ## Game-mode looks and music
 
 `GameModeLook` (`town-2d/src/map/hd2d/gameModes/index.ts`): `apply(view, metre)` plus optional `mount(layer)` for DOM overlays, `addToScene`, `step`, `badges`, and ground/standing shaders. All looks are constructed for every scene and react to the view's `kind`.
@@ -44,6 +54,7 @@ The world stays paused until the player presses play.
 ## Model-written content today
 
 - Town creator: one sentence → `/parse` → plan (HTTP, manager).
+- Story editor: outline → `/story` → story draft (HTTP, manager).
 - Villager editor and the onboarding guide: a brief → `generate_resident_template` → persona fields (WebSocket, host).
 
 ## Memory UI

@@ -114,8 +114,19 @@ pub fn town_creation(value: &Value) -> Result<Option<Value>, ApiError> {
         Value::String(id) if prefab_id(id) => creation["prefab"] = json!(id),
         _ => return Err(invalid()),
     }
+    // 故事编辑器写的故事草稿：原样存着，进镇时页面按它出开局设置；只限大小，内容由页面和内核查
+    match &value["scenario"] {
+        Value::Null => {}
+        scenario @ Value::Object(_) if scenario.to_string().len() <= SCENARIO_MAX_BYTES => {
+            creation["scenario"] = scenario.clone()
+        }
+        _ => return Err(invalid()),
+    }
     Ok(Some(creation))
 }
+
+/// 建镇说明里的故事草稿最多这么大（JSON 字节数），同 scripts/towns/storage.mjs
+const SCENARIO_MAX_BYTES: usize = 64 * 1024;
 
 /// 预制小镇的编号：小写字母、数字和连字符，字母或数字开头，最多 40 个字符。
 fn prefab_id(id: &str) -> bool {

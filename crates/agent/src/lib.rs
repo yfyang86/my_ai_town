@@ -16,6 +16,7 @@ pub mod observation;
 pub mod prompts;
 pub mod runtime;
 pub mod session;
+pub mod story;
 pub mod tools;
 pub mod view;
 

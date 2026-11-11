@@ -57,6 +57,11 @@ trait Rules {
     fn clash(&mut self, _world: &World, _actor: &str, _target: &str, _text: &str) {}
 }
 
+/// 一本故事模式的剧本合不合规（开局时也查这一遍）：故事编辑器交草稿前先问。
+pub fn check_storyline(script: &protocol::StorylineScript) -> Result<()> {
+    storyline::check(script)
+}
+
 /// 世界里开着的玩法。存档里写成 `{"tide": {...}}`。一个世界只有一份，各玩法大小不一不要紧。
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]

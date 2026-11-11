@@ -16,6 +16,7 @@
 | `observation.rs` | What this resident perceives, as JSON; the open game mode's context is merged in here |
 | `tools.rs`, `tools/*` | Tool table and execution: actions, `mode_action`, `recall`, `memory_search`, `memory_read`, `reflect`, … |
 | `prompts.rs`, `prompts/*.txt` | Fixed prompt texts |
+| `story.rs` | Story editor: prompt for a story draft, tolerant parsing and normalisation (`tidy`), conversion to a `StorylineScript` |
 | `completion.rs`, `completion/local.rs`, `builtin.rs` | OpenAI-compatible bodies and parsing; local Qwen via Ollama; built-in fine-tuned model template |
 | `context/*` | Folding long histories, summaries, bounded views |
 | `session.rs` | The saved session (history cursors, `memory`, `notebook`, budgets) |
