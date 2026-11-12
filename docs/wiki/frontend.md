@@ -70,3 +70,15 @@ The world stays paused until the player presses play.
 ## Tests
 
 `node --test` over `scripts/tests/*.test.mjs` and `frontend/town-shared/tests/*.test.mjs`; `tsc --noEmit` per package; prettier over `frontend` and `scripts`.
+
+## Records download
+
+Menu → 「记录」 (`town-shared/src/shell/records.ts`). The dialog asks which kinds (对话, 想法, 世界日志, 模型轨迹 — the last is off by default because it is large) and which format, fetches `GET /api/towns/<id>/transcript`, sorts the lines by world then by sim minutes, and saves one file through a Blob link:
+
+| Format | Content |
+| --- | --- |
+| JSON | `{town, exported_at, counts, items: [...]}` |
+| JSONL | one record per line, as stored |
+| 文字 (`.md`) | one readable line per record; trace records are abbreviated |
+
+The page does not keep its own copy: the world process writes the log (see protocol-and-host → `transcript.rs`), so a download also covers what happened while no page was open.

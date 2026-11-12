@@ -39,6 +39,8 @@ pub(crate) struct Runtime {
     pub save_failed: bool,
     /// 录像：广播都过它一遍（见 host::recording）；和网络层共用一份
     pub tape: host::recording::Tape,
+    /// 记录：说过的话、想法、世界日志和 Agent 轨迹写进小镇目录（见 host::transcript）；和网络层、村民驱动共用一份
+    pub transcript: host::transcript::Transcript,
     /// 开新一卷录像要的小镇目录与地图；世界不存档时为空
     pub reels: Option<crate::recording_commands::ReelSource>,
 }
@@ -509,6 +511,7 @@ impl Runtime {
             return Outcome::reply(error_msg(message));
         }
         println!("[host] 世界已重置：{}，已暂停", self.world.clock());
+        self.transcript.rebind(&self.population.world_id);
         // 重置后是新的世界：上一卷录像收起，开新的一卷
         if self.world_settings.recording {
             if let Err(error) = self.start_reel() {

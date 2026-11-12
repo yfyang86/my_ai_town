@@ -24,12 +24,19 @@
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   max-width: 60%;
   padding: 6px 18px;
   border-radius: var(--r-pill);
   white-space: nowrap;
+}
+.st-art {
+  flex: none;
+  height: 28px;
+  margin-left: -10px;
+  border-radius: 12px;
+  image-rendering: pixelated;
 }
 .st-banner b {
   font-size: 14px;

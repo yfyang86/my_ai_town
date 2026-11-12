@@ -165,6 +165,16 @@ fn town_api_needs_session_and_static_files_stay_in_web_dir() {
         response.contains(r#"["swordholder","werewolf"]"#),
         "{response}"
     );
+    // 记录：只给要的种类；没开过的小镇每种都是空的
+    let (status, response) = manager.get(
+        "/api/towns/default-town/transcript?kinds=chat,trace",
+        &cookie,
+    );
+    assert_eq!(status, 200);
+    assert!(
+        response.contains(r#"{"kinds":{"chat":"","trace":""}}"#),
+        "{response}"
+    );
 
     // 写操作还要应用自己的请求头：别的网页带不上，就发不出跨站请求
     let post = format!(

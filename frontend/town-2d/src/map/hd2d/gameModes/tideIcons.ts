@@ -1,8 +1,10 @@
 import type { TideNewsKind } from 'town-shared/protocol'
 import type { Badge } from '../villagerSigns'
+import { artImage, gameModeArt } from './art'
 import { iconImage, type PixelIcon } from './pixelIcons'
 
-// 潮水圈界面的像素图标：动手、倒下、木箱、船、信号弹，画法见 pixelIcons.ts。
+// 潮水圈界面的图标：有生成的素材块（assets/gameModes/tide/，见 art.ts）就用生成的，
+// 没有用代码画的像素图标，画法见 pixelIcons.ts。
 
 const ICONS = {
   clash: {
@@ -123,6 +125,8 @@ const ICONS = {
 
 /** 战报一类事的图标，按 scale 倍显示（18 × scale 像素见方） */
 export function tideIcon(kind: TideNewsKind, scale = 2) {
+  const art = gameModeArt('tide', kind)
+  if (art) return artImage(art, scale, 'tide-px')
   return iconImage(`tide:${kind}`, ICONS[kind], scale, 'tide-px')
 }
 

@@ -60,6 +60,8 @@ type Peers = Arc<Mutex<BTreeMap<u64, Peer>>>;
 pub(crate) struct Clients {
     peers: Peers,
     tape: Tape,
+    /// 记录：广播都过它一遍（见 host::transcript）
+    transcript: host::transcript::Transcript,
 }
 pub(crate) enum NetworkEvent {
     /// 客户端命令；消息体比断线事件大得多，装箱后队列里每项占用一样小。
@@ -102,6 +104,7 @@ pub(crate) fn listen(
     greeting: Option<String>,
     token: Option<String>,
     tape: Tape,
+    transcript: host::transcript::Transcript,
 ) -> Result<(Clients, Receiver<NetworkEvent>, u16), HostError> {
     let peers: Peers = Arc::new(Mutex::new(BTreeMap::new()));
     let (to_sim, from_net) = sync_channel(COMMAND_QUEUE);
@@ -141,7 +144,15 @@ pub(crate) fn listen(
             });
         }
     });
-    Ok((Clients { peers, tape }, from_net, actual_port))
+    Ok((
+        Clients {
+            peers,
+            tape,
+            transcript,
+        },
+        from_net,
+        actual_port,
+    ))
 }
 
 /// 握手：校验会话标识，成功后先发世界身份。任何一步失败都丢弃这条连接。
@@ -307,4 +318,5 @@ pub(crate) fn broadcast(clients: &Clients, msg: &ServerMsg) {
         .unwrap()
         .retain(|id, peer| peer.deliver(*id, json.clone()));
     clients.tape.record(msg, &json);
+    clients.transcript.note(msg);
 }

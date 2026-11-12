@@ -179,6 +179,17 @@ fn api(app: &App, req: &Request, rest: &str, get: bool) -> Result<Response, ApiE
             }
             Ok(Response::raw_json(map.bytes))
         }
+        // 记录：说过的话、想法、世界日志、Agent 轨迹（世界进程写在小镇目录里，见 host::transcript）
+        (true, "transcript") => {
+            let wanted: Vec<&str> = req
+                .query
+                .get("kinds")
+                .map(|k| k.split(',').filter(|k| !k.is_empty()).collect())
+                .unwrap_or_default();
+            let town = app.storage.town(id)?;
+            ok(host::transcript::read(&town, &wanted)
+                .map_err(|e| ApiError::bad(format!("读不了记录：{e}")))?)
+        }
         (false, "open") => {
             let automatic = body(req)?["automatic"].as_bool().unwrap_or(false);
             app.refuse_displaced(id, automatic)?;

@@ -34,6 +34,8 @@ pub(crate) struct ResidentDriver {
     pub mock: bool,
     /// 故事里的临场裁定（见 host::narrator）
     pub narrator: host::narrator::Narrator,
+    /// 记录：Agent 轨迹另抄一份进小镇目录
+    pub transcript: host::transcript::Transcript,
     pool: WorkerPool,
     log: BufWriter<File>,
 }
@@ -106,6 +108,7 @@ impl ResidentDriver {
             target,
             mock: is_mock,
             narrator: Default::default(),
+            transcript: Default::default(),
             pool,
             log,
         })
@@ -356,11 +359,10 @@ impl ResidentDriver {
                         "model": target.model,
                     })
                 });
-            serde_json::to_writer(
-                &mut self.log,
-                &json!({"trace":record,"model_snapshot":model_snapshot}),
-            )
-            .map_err(|e| HostError::Io(format!("写 Agent 轨迹失败：{e}")))?;
+            let line = json!({"trace":record,"model_snapshot":model_snapshot});
+            self.transcript.trace(&line);
+            serde_json::to_writer(&mut self.log, &line)
+                .map_err(|e| HostError::Io(format!("写 Agent 轨迹失败：{e}")))?;
             self.log
                 .write_all(b"\n")
                 .map_err(|e| HostError::Io(format!("写 Agent 轨迹失败：{e}")))?;
