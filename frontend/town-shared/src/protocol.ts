@@ -650,8 +650,8 @@ export type GameModeChoice =
   | { kind: 'werewolf'; seed?: number; day_hours?: number }
   /** 执剑人之夜：seed 定下演说和表态的先后、平票时抽签；day_hours 是白天自由活动几小时（天亮到敲钟）；rules 是改过的规则 */
   | { kind: 'swordholder'; seed?: number; day_hours?: number; rules?: SwordholderRules }
-  /** 故事模式：整本剧本带进来 */
-  | { kind: 'storyline'; seed?: number; script: StorylineScript }
+  /** 故事模式：整本剧本带进来；ruleset 是可选的规则套件（角色卡、检定……） */
+  | { kind: 'storyline'; seed?: number; script: StorylineScript; ruleset?: RulesetChoice }
 
 /** 潮水圈里的一个圈：圆心和半径都是行走地图上的米（x 和地面上的 z） */
 export interface TideCircle {
@@ -766,6 +766,112 @@ export interface StorylineScript {
   ends_minute: number
   epilogue?: string
 }
+/** 规则套件：现在只有第五版规则（SRD 5.1），sheets 是角色卡，按座号排 */
+export type RulesetChoice = { kind: 'srd5'; sheets: Srd5Sheet[] }
+export interface Srd5Sheet {
+  /** fighter、rogue、cleric、wizard */
+  class: string
+  /** 1–3 */
+  level: number
+  abilities: { str: number; dex: number; con: number; int: number; wis: number; cha: number }
+  /** 熟练的技能编号（athletics、stealth……）：职业给的几项加背景给的两项 */
+  skills?: string[]
+  /** 专精的技能（熟练加值算两次）：只有游荡者有，最多两项 */
+  expertise?: string[]
+  /** 手里的武器（unarmed、dagger、longsword……）；不写是拳脚 */
+  weapon?: string
+  /** 身上的甲（leather、chain_shirt、chain_mail）；不写是没穿 */
+  armor?: string
+  shield?: boolean
+  /** 准备的法术编号（cure_wounds、magic_missile……）：只有牧师和法师有，要是本职业、这一级够得着的 */
+  spells?: string[]
+}
+/** 节拍上的一场遭遇战：几块相邻的区域排成一线，来的对手，卷进来的角色 */
+export interface StorylineEncounter {
+  id: string
+  title: string
+  zones: string[]
+  /** 卷进来的座号；不写是所有人 */
+  party?: number[]
+  /** 角色从第几块区域开始（从 0 数） */
+  party_zone?: number
+  foes: { creature: string; name?: string; zone?: number }[]
+}
+export interface FighterView {
+  name: string
+  /** 角色的座号；对手没有 */
+  seat?: number
+  hp: number
+  max_hp: number
+  ac: number
+  zone: number
+  state?: string[]
+}
+export interface FightView {
+  title: string
+  round: number
+  zones: string[]
+  fighters: FighterView[]
+  /** 轮到谁（fighters 的下标） */
+  turn?: number
+  /** won、lost、drawn */
+  outcome?: string
+}
+/** 试的办法：属性，可以带一项技能；save 是这项属性的豁免 */
+export interface CheckWay {
+  ability: string
+  skill?: string
+  save?: boolean
+}
+/** 节拍上的一项检定：难度 dc，可以用 ways 里的任一种办法试 */
+export interface StorylineCheck {
+  id: string
+  title: string
+  detail: string
+  dc: number
+  /** 能试的座号；不写是所有人 */
+  seats?: number[]
+  ways: CheckWay[]
+  /** 没成可以再试 */
+  repeat?: boolean
+  /** 被动检定：不掷骰，10 + 加值够难度的人自己留意到 */
+  passive?: boolean
+  /** 对抗：和这个人掷出来的比，不看难度 */
+  against?: { seat: number; ways: CheckWay[] }
+  /** 什么情形下有优势或劣势 */
+  edges?: {
+    effect: 'advantage' | 'disadvantage'
+    reason: string
+    milestone?: string
+    place?: string
+    seats?: number[]
+  }[]
+}
+/** 掷的一次骰 */
+export interface DiceRoll {
+  at: number
+  seat: number
+  what: string
+  way: string
+  formula: string
+  dice: number[]
+  modifier: number
+  total: number
+  dc?: number
+  success?: boolean
+  /** 有优势或劣势时 dice 里是两颗 */
+  edge?: 'advantage' | 'disadvantage'
+  /** 对抗时对方的总数 */
+  versus?: number
+}
+export interface RulesetView {
+  id: string
+  /** 按座号排，每人的角色卡一行 */
+  sheets: string[]
+  rolls?: DiceRoll[]
+  /** 正在打或刚打完的遭遇战 */
+  fight?: FightView
+}
 export interface StorylineRole {
   /** 在故事里是谁，公开 */
   role: string
@@ -787,6 +893,10 @@ export interface StorylineBeat {
   brief?: string
   /** 一场戏：这几个座号按次序一次一人说话 */
   scene?: { speakers: number[]; minutes: number; chars: number }
+  /** 这个节拍开出来的检定（开着规则套件才有用） */
+  checks?: StorylineCheck[]
+  /** 这个节拍打起来的遭遇战（开着规则套件才打） */
+  encounter?: StorylineEncounter
 }
 export interface StorylineMilestone {
   id: string
@@ -800,6 +910,8 @@ export type StorylineWhen =
   | { kind: 'beat'; beat: string }
   | { kind: 'gather'; place: string; seats?: number[]; count: number }
   | { kind: 'declare'; seats?: number[] }
+  | { kind: 'check'; check: string }
+  | { kind: 'encounter'; encounter: string }
 export interface StorylineSeat {
   seat: number
   id: string
@@ -845,6 +957,8 @@ export interface StorylineView {
   lines?: StorylineLine[]
   ended?: boolean
   epilogue?: string
+  /** 开着规则套件时：角色卡和掷过的骰 */
+  ruleset?: RulesetView
 }
 
 /** 执剑人之夜的身份：按入住的号码，1 号现任执剑人，2、3 号候选人，4 号三体世界的代表，其余是选民 */

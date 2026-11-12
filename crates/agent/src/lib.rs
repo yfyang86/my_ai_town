@@ -11,6 +11,7 @@ pub mod interaction;
 pub mod labels;
 pub mod looks;
 pub mod memory;
+pub mod narrator;
 pub mod notebook;
 pub mod observation;
 pub mod prompts;

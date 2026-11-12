@@ -81,7 +81,12 @@ export class StorylineLook implements GameModeLook {
       if (v.turn === s.seat) row.classList.add('turn')
       const face = residentPortrait(s.id, s.name)
       face.classList.add('st-face')
-      row.append(face, el('b', s.name), el('small', s.role))
+      // 开着规则套件：身份后面带上职业和等级（角色卡那一行的开头）
+      const full = v.ruleset?.sheets[s.seat - 1]
+      const sheet = full?.split(' · ')[0]
+      // 整张角色卡放在悬停提示里
+      if (full) row.title = full
+      row.append(face, el('b', s.name), el('small', sheet ? `${s.role} · ${sheet}` : s.role))
       if (s.gone) row.append(el('i', '不在了'))
       box.append(row)
     }
@@ -111,6 +116,65 @@ export class StorylineLook implements GameModeLook {
         item.append(el('i', m.done ? '✓' : m.missed ? '✕' : '·'), el('b', m.title))
         const who = this.seat(m.by)?.name
         item.append(el('small', m.done && m.text ? `${who ?? ''}：${m.text}` : m.detail))
+        list.append(item)
+      }
+      box.append(list)
+    }
+    // 正在打或刚打完的遭遇战：第几轮、每块区域里是谁、生命和状态，轮到谁亮着
+    const fight = v.ruleset?.fight
+    if (fight) {
+      const result =
+        fight.outcome === 'won'
+          ? ' · 打赢了'
+          : fight.outcome === 'lost'
+            ? ' · 打输了'
+            : fight.outcome
+              ? ' · 散了'
+              : ` · 第 ${fight.round} 轮`
+      box.append(el('h4', `${fight.title}${result}`))
+      const list = el('ul', '', 'st-fight')
+      fight.zones.forEach((zone, z) => {
+        const here = fight.fighters
+          .map((f, k) => ({ f, k }))
+          .filter(({ f }) => f.zone === z && !f.state?.includes('已退出'))
+        const item = el('li')
+        item.append(el('time', zone))
+        const who = el('span')
+        for (const { f, k } of here) {
+          const tag = el('b', f.name, f.seat ? 'ally' : 'foe')
+          if (fight.turn === k && !fight.outcome) tag.classList.add('turn')
+          if (f.hp <= 0) tag.classList.add('down')
+          who.append(
+            tag,
+            el('small', `${f.hp}/${f.max_hp}${f.state?.length ? ' ' + f.state.join('、') : ''}`)
+          )
+        }
+        if (!here.length) who.append(el('small', '没有人'))
+        item.append(who)
+        list.append(item)
+      })
+      box.append(list)
+    }
+    // 开着规则套件：最近掷的几次骰，算式、点数和成败
+    const rolls = v.ruleset?.rolls?.slice(-4) ?? []
+    if (rolls.length) {
+      box.append(el('h4', '掷骰'))
+      const list = el('ul', '', 'st-rolls')
+      for (const r of rolls) {
+        const item = el('li', '', r.success ? 'done' : r.success === false ? 'missed' : '')
+        const sign = r.modifier < 0 ? '−' : '+'
+        item.append(
+          el('i', r.success ? '✓' : r.success === false ? '✕' : '·'),
+          el('b', `${this.seat(r.seat)?.name ?? ''} · ${r.what}`),
+          el(
+            'small',
+            `${r.way}：d20 掷出 ${r.dice.join('、')}` +
+              (r.edge ? `（${r.edge === 'advantage' ? '优势，取高' : '劣势，取低'}）` : '') +
+              `，${sign}${Math.abs(r.modifier)} 共 ${r.total}` +
+              (r.versus !== undefined ? `，对方 ${r.versus}` : '') +
+              (r.dc === undefined ? '' : `，难度 ${r.dc}`)
+          )
+        )
         list.append(item)
       }
       box.append(list)

@@ -399,6 +399,18 @@ pub(super) fn mode_action() -> Value {
         &["action"],
     )
 }
+/// 玩法动作再带一项 with：几个有名字的短参数，名字和取值由开着的玩法在说明里写
+pub(super) fn mode_action_with_params() -> Value {
+    let mut schema = mode_action();
+    schema["properties"]["with"] = json!({
+        "type": "object",
+        "additionalProperties": {"type":"string","maxLength":MODE_PARAM_CHARS},
+        "maxProperties": MODE_PARAMS_MAX
+    });
+    schema
+}
+const MODE_PARAM_CHARS: usize = 40;
+const MODE_PARAMS_MAX: usize = 6;
 /// 玩法动作里一段话、一句理由的上限。
 const MODE_TEXT_CHARS: usize = 600;
 const MODE_REASON_CHARS: usize = 200;

@@ -19,7 +19,7 @@ A `Prefab` is a TS object: `worldview`, map `spec`, `gameMode`, `roster` (templa
 
 Options and rules are plain data, so a prefab can be produced by a tool rather than written by hand:
 
-- `PrefabOption` — a segmented row; `field` is a dotted path into the `GameModeChoice` (`day_hours`, `seed`), `number` parses the value.
+- `PrefabOption` — a segmented row; `field` is a dotted path into the `GameModeChoice` (`day_hours`, `seed`), `number` parses the value, and `values` maps each choice to an arbitrary JSON value (灯塔之约 uses it to attach a whole `ruleset`).
 - `PrefabRule` — a row inside the collapsed 「规则」 section: `kind` is `time`, `minutes` or `switch`, `field` is a path such as `rules.bell`, `initial` must equal the kernel default. Only edited rules are sent; an untouched section sends nothing.
 - `withField` / `applyOption` fold the picked values into the choice.
 
@@ -39,11 +39,11 @@ The world stays paused until the player presses play.
 
 `town-2d/src/launcher/storyEditor.ts` — 「写一个故事」 on the selection page.
 
-1. **Outline** — a story or outline (≤ 6000 chars), number of characters, number of days. `POST /api/towns/story` asks the connected model for a **story draft**.
-2. **Review** — every field of the draft is editable; beats, places and milestones can be added and removed.
+1. **Outline** — a story or outline (≤ 6000 chars), number of characters, number of days, and an optional 「第五版规则」 switch (sends `rules: "srd5"`). `POST /api/towns/story` asks the connected model for a **story draft**.
+2. **Review** — every field of the draft is editable; beats, places and milestones can be added and removed. With rules on: each character card shows the sheet (class, skills, weapon, armour, spells — ids, normalised by the manager on build), each beat lists its checks and encounter with a delete button, the manager's `notes` are shown, and 「不用规则」 strips all of it. While editing, sheets ride on the characters (`StoryCharacter.sheet`) so deleting a character cannot shift them.
 3. **Build** — the draft goes back through `/story` (tidied and checked with the same rules the kernel applies at open), the map is generated from the draft's places (`specOf`), and the town is saved with `creation.scenario = draft`.
 
-`town-shared/src/prefabs/scenario.ts` holds the `StoryDraft` type and turns a draft into a generator spec (`specOf`), a storyline script (`scriptOf`) and a `Prefab` (`scenarioPrefab`). The game shell uses `prefabOf(creation.prefab) ?? scenarioPrefab(creation.scenario)`, so a story town opens the same setup screen as a hand-written scripted town.
+`town-shared/src/prefabs/scenario.ts` holds the `StoryDraft` type and turns a draft into a generator spec (`specOf`), a storyline script (`scriptOf`) and a `Prefab` (`scenarioPrefab`). The game shell uses `prefabOf(creation.prefab) ?? scenarioPrefab(creation.scenario)`, so a story town opens the same setup screen as a hand-written scripted town. A draft with `rules` gets a 「规则」 option there (default 第五版规则, or 不掷骰).
 
 ## Game-mode looks and music
 
@@ -70,3 +70,15 @@ The world stays paused until the player presses play.
 ## Tests
 
 `node --test` over `scripts/tests/*.test.mjs` and `frontend/town-shared/tests/*.test.mjs`; `tsc --noEmit` per package; prettier over `frontend` and `scripts`.
+
+## Records download
+
+Menu → 「记录」 (`town-shared/src/shell/records.ts`). The dialog asks which kinds (对话, 想法, 世界日志, 模型轨迹 — the last is off by default because it is large) and which format, fetches `GET /api/towns/<id>/transcript`, sorts the lines by world then by sim minutes, and saves one file through a Blob link:
+
+| Format | Content |
+| --- | --- |
+| JSON | `{town, exported_at, counts, items: [...]}` |
+| JSONL | one record per line, as stored |
+| 文字 (`.md`) | one readable line per record; trace records are abbreviated |
+
+The page does not keep its own copy: the world process writes the log (see protocol-and-host → `transcript.rs`), so a download also covers what happened while no page was open.

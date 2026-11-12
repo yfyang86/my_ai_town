@@ -1,0 +1,53 @@
+/* 菜单里的「记录」对话框 */
+.records {
+  width: min(440px, calc(100vw - 24px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--elev-3);
+}
+.records::backdrop {
+  background: #201c1730;
+}
+.records header,
+.records footer {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.records header strong {
+  flex: 1;
+}
+.records footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+.records-body {
+  padding: 4px 14px 14px;
+}
+.records-body h4 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+}
+.records-kinds label,
+.records-formats label {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.records-kinds small {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.records-status {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}

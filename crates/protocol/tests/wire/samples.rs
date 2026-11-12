@@ -1453,6 +1453,54 @@ fn storyline_script() -> StorylineScript {
                 minutes: 10,
                 chars: 200,
             }),
+            checks: vec![StorylineCheck {
+                id: "ledger".into(),
+                title: "翻出旧账".into(),
+                detail: "在镇公所的柜子里找到那本账".into(),
+                dc: 13,
+                seats: vec![1],
+                ways: vec![
+                    CheckWay {
+                        ability: "int".into(),
+                        skill: Some("investigation".into()),
+                        save: false,
+                    },
+                    CheckWay {
+                        ability: "con".into(),
+                        skill: None,
+                        save: true,
+                    },
+                ],
+                repeat: true,
+                passive: false,
+                against: Some(CheckContest {
+                    seat: 2,
+                    ways: vec![CheckWay {
+                        ability: "cha".into(),
+                        skill: Some("deception".into()),
+                        save: false,
+                    }],
+                }),
+                edges: vec![CheckEdge {
+                    effect: Edge::Advantage,
+                    reason: "有人帮着照亮".into(),
+                    milestone: Some("opened".into()),
+                    place: Some("广场".into()),
+                    seats: vec![1],
+                }],
+            }],
+            encounter: Some(StorylineEncounter {
+                id: "ambush".into(),
+                title: "栈桥伏击".into(),
+                zones: vec!["栈桥".into(), "货堆".into()],
+                party: vec![1, 2],
+                party_zone: 0,
+                foes: vec![EncounterFoe {
+                    creature: "bandit".into(),
+                    name: Some("刀疤".into()),
+                    zone: 1,
+                }],
+            }),
         }],
         milestones: vec![
             StorylineMilestone {
@@ -1481,6 +1529,24 @@ fn storyline_script() -> StorylineScript {
                 detail: "镇长当众承认了那笔债".into(),
                 when: StorylineWhen::Declare { seats: vec![2] },
                 secret: true,
+            },
+            StorylineMilestone {
+                id: "found".into(),
+                title: "旧账到手".into(),
+                detail: "有人翻出了旧账".into(),
+                when: StorylineWhen::Check {
+                    check: "ledger".into(),
+                },
+                secret: false,
+            },
+            StorylineMilestone {
+                id: "survived".into(),
+                title: "打退了伏击".into(),
+                detail: "栈桥上的伏击打赢了".into(),
+                when: StorylineWhen::Encounter {
+                    encounter: "ambush".into(),
+                },
+                secret: false,
             },
         ],
         ends_day: 1,
@@ -1572,6 +1638,54 @@ fn storyline_roster() -> ServerMsg {
             }],
             ended: true,
             epilogue: Some("雾散了。".into()),
+            ruleset: Some(RulesetView {
+                id: "srd5".into(),
+                sheets: vec![
+                    "战士 1 级 · 力量 16(+3) 敏捷 12(+1)".into(),
+                    "法师 1 级 · 智力 16(+3)".into(),
+                ],
+                rolls: vec![DiceRoll {
+                    at: 615.0,
+                    seat: 1,
+                    what: "翻出旧账".into(),
+                    way: "智力·调查".into(),
+                    formula: "d20+3".into(),
+                    dice: vec![14],
+                    modifier: 3,
+                    total: 17,
+                    dc: Some(13),
+                    success: Some(true),
+                    edge: Some(Edge::Disadvantage),
+                    versus: Some(11),
+                }],
+                fight: Some(FightView {
+                    title: "栈桥伏击".into(),
+                    round: 2,
+                    zones: vec!["栈桥".into(), "货堆".into()],
+                    fighters: vec![
+                        FighterView {
+                            name: "阿塔".into(),
+                            seat: Some(1),
+                            hp: 0,
+                            max_hp: 12,
+                            ac: 18,
+                            zone: 1,
+                            state: vec!["昏迷".into()],
+                        },
+                        FighterView {
+                            name: "刀疤".into(),
+                            seat: None,
+                            hp: 4,
+                            max_hp: 11,
+                            ac: 12,
+                            zone: 1,
+                            state: vec![],
+                        },
+                    ],
+                    turn: Some(1),
+                    outcome: Some("lost".into()),
+                }),
+            }),
         }));
     }
     roster
@@ -1639,6 +1753,46 @@ pub fn shape_samples() -> (Vec<ServerMsg>, Vec<ClientMsg>) {
                 game_mode: Some(GameModeChoice::Storyline {
                     seed: Some(9),
                     script: Box::new(storyline_script()),
+                    ruleset: Some(RulesetChoice::Srd5 {
+                        sheets: vec![
+                            Srd5Sheet {
+                                class: "fighter".into(),
+                                level: 1,
+                                abilities: Abilities {
+                                    str: 16,
+                                    dex: 12,
+                                    con: 14,
+                                    int: 10,
+                                    wis: 13,
+                                    cha: 8,
+                                },
+                                skills: vec!["athletics".into(), "intimidation".into()],
+                                expertise: vec![],
+                                weapon: Some("longsword".into()),
+                                armor: Some("chain_mail".into()),
+                                shield: true,
+                                spells: vec![],
+                            },
+                            Srd5Sheet {
+                                class: "rogue".into(),
+                                level: 1,
+                                abilities: Abilities {
+                                    str: 8,
+                                    dex: 14,
+                                    con: 12,
+                                    int: 16,
+                                    wis: 13,
+                                    cha: 10,
+                                },
+                                skills: vec!["stealth".into()],
+                                expertise: vec!["stealth".into()],
+                                weapon: None,
+                                armor: None,
+                                shield: false,
+                                spells: vec![],
+                            },
+                        ],
+                    }),
                 }),
             },
             ClientMsg::SetGameMode {

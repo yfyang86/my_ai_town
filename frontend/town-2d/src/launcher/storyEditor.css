@@ -156,3 +156,13 @@
 .story-card > button {
   margin-top: 6px;
 }
+
+/* 规则那几行说明、角色卡上的属性 */
+.story-hint {
+  margin: 2px 0;
+  color: var(--ui-ink-muted);
+  font-size: 12px;
+}
+.story-group > h3:not(:first-child) {
+  margin-top: 18px;
+}

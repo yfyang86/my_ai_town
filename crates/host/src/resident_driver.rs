@@ -32,6 +32,10 @@ pub(crate) struct ResidentDriver {
     pub target: LlmTarget,
     /// 固定回复池：不要求配置模型服务
     pub mock: bool,
+    /// 故事里的临场裁定（见 host::narrator）
+    pub narrator: host::narrator::Narrator,
+    /// 记录：Agent 轨迹另抄一份进小镇目录
+    pub transcript: host::transcript::Transcript,
     pool: WorkerPool,
     log: BufWriter<File>,
 }
@@ -103,6 +107,8 @@ impl ResidentDriver {
             runtime,
             target,
             mock: is_mock,
+            narrator: Default::default(),
+            transcript: Default::default(),
             pool,
             log,
         })
@@ -171,6 +177,47 @@ impl ResidentDriver {
         self.flush_trace_with_targets(&request_targets)
     }
     /// 还没有能用模型的村民与原因；固定回复池不需要模型。
+    /// 故事里等主持人裁定的事：没问过的问一次（用提出这件事的村民自己的模型），裁好了的交回内核。
+    /// 模型没裁出来的也交回去，由内核告诉本人作罢。返回有没有交回过。
+    pub fn narrate(
+        &mut self,
+        world: &mut World,
+        population: &Population,
+        settings: &Settings,
+        clients: &Clients,
+    ) -> bool {
+        let done = self.narrator.finished();
+        let changed = !done.is_empty();
+        for (id, ruling) in done {
+            let text = match &ruling {
+                Ok(_) => format!("主持人裁定 {id}"),
+                Err(error) => format!("主持人没有裁出 {id}：{error}"),
+            };
+            broadcast_event(clients, world, text, EventInfo::model());
+            if let Err(error) = world.game_mode_rule(&id, ruling.as_ref().ok()) {
+                broadcast_event(
+                    clients,
+                    world,
+                    format!("裁定 {id} 没有生效：{error}"),
+                    EventInfo::model(),
+                );
+            }
+        }
+        for request in world.game_mode_rulings() {
+            let target = if self.mock {
+                None
+            } else {
+                match resident_target(&request.actor, population, settings) {
+                    Ok(target) => Some(target),
+                    // 这个人没有能用的模型：不问，内核到点自己作罢
+                    Err(_) => continue,
+                }
+            };
+            self.narrator.ask(request, target);
+        }
+        changed
+    }
+
     pub fn missing_models(
         &self,
         population: &Population,
@@ -312,11 +359,10 @@ impl ResidentDriver {
                         "model": target.model,
                     })
                 });
-            serde_json::to_writer(
-                &mut self.log,
-                &json!({"trace":record,"model_snapshot":model_snapshot}),
-            )
-            .map_err(|e| HostError::Io(format!("写 Agent 轨迹失败：{e}")))?;
+            let line = json!({"trace":record,"model_snapshot":model_snapshot});
+            self.transcript.trace(&line);
+            serde_json::to_writer(&mut self.log, &line)
+                .map_err(|e| HostError::Io(format!("写 Agent 轨迹失败：{e}")))?;
             self.log
                 .write_all(b"\n")
                 .map_err(|e| HostError::Io(format!("写 Agent 轨迹失败：{e}")))?;

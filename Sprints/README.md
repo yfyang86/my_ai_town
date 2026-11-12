@@ -20,7 +20,20 @@ Six sprints, one folder each. Every sprint runs the same loop:
 | 5 | Agent memory | SQLite FTS5 word index (Chinese-capable), importance · recency · relevance ranking, "dreaming" while asleep |
 | 6 | Memory UI, hardening, release | Dreams visible in the memory page, cross-feature regression, docs and wiki brought up to date, `dev` ready for `main` |
 
-**Status (2026-11-11):** all six sprints are merged into `dev`; each `sprint-N/report.md` says what shipped, how it was checked, and what was left. `main` is untouched.
+**Status (2026-11-11):** all six sprints are merged into `dev` and from there into `main`; each `sprint-N/report.md` says what shipped, how it was checked, and what was left.
+
+## Second roadmap: fifth-edition rules (sprints 7–12)
+
+An optional ruleset on the storyline mode, built from SRD 5.1. The plan, scope and decisions are in `ruleset-5e/plan.md`.
+
+| Sprint | Theme | State |
+| --- | --- | --- |
+| 7 | Ruleset framework, dice, scripted checks | merged into `dev` |
+| 8 | Classes, saves, contests, advantage, passive checks, help | merged into `dev` |
+| 9 | Combat: initiative, turns, attacks, death saves | merged into `dev` |
+| 10 | Magic, long rest, experience and levels, duels | merged into `dev` |
+| 11 | Model narrator, adventure drafting in the story editor | merged into `dev` |
+| 12 | SRD check, short rest, cost report, player notes | merged into `dev` |
 
 ## Decisions taken with the product owner (2026-11-11)
 
@@ -30,3 +43,9 @@ Six sprints, one folder each. Every sprint runs the same loop:
 4. Git flow: `dev` created from `main`; each sprint is a PR into `dev`, merged once CI passes.
 5. Storyline strength: **scheduled beats + soft goals** — events fire on time, milestones are tracked, agents still decide.
 6. Platforms: shared frontend; new manager endpoints exist in both the Node and the Rust manager. Only the desktop/web path can be run in the development environment; phone and desktop shells are compile-checked.
+
+## After the two roadmaps
+
+| Sprint | Theme | State |
+| --- | --- | --- |
+| 13 | `main` merged in; town log (chat, thoughts, events, agent traces) with download; twelve-character story playtest | merged into `dev` |

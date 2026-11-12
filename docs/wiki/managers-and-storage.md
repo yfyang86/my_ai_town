@@ -21,7 +21,8 @@ POST bodies are JSON with header `x-town-client: 1`, at most 1 MB. Errors are `{
 | GET/POST `/prefabs` | Which scripted towns the selection page lists: `{hidden: [prefab id]}` | ✓ | ✓ |
 | GET `/options` | Creator options, model availability | full | `{generation: 'client', model}` |
 | POST `/parse` | One sentence → build plan (model call) | via `town-map parse` | in-process |
-| POST `/story` | Story editor: `{outline, cast, days}` → model writes a story draft; `{draft}` → tidy and validate an edited draft (no model call) | via `town-map story` | in-process |
+| POST `/story` | Story editor: `{outline, cast, days, rules?}` → model writes a story draft (`rules: "srd5"` adds character sheets, checks and encounters); `{draft}` → tidy and validate an edited draft (no model call) | via `town-map story` | in-process |
+| GET `/:id/transcript?kinds=chat,thought,event,trace` | The town log as written by the world process: `{kinds: {chat: "<jsonl>", …}}`, one raw JSONL string per requested kind (all four when `kinds` is omitted), empty when nothing was recorded | ✓ | ✓ |
 | POST `/preview` | Run generator, return draft | ✓ | refuses (page generates) |
 | POST `/drafts` | Validate a page-generated map, return draft | — | ✓ |
 | POST `/save` | Draft → town | ✓ | ✓ |
@@ -48,6 +49,7 @@ On desktop the generator (`scripts/mapgen`) runs in the manager. In the apps it 
     world.json                  the save: world + resident sessions
     prop-layout.json
     recordings/                 broadcast reels
+    transcript/                 chat.jsonl, thought.jsonl, event.jsonl, trace.jsonl — appended while the world runs
     logs/, host.log, host-ready.json
 ```
 
