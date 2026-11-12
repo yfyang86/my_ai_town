@@ -3,10 +3,13 @@ import type { GameModeView, StorylineSeat, StorylineView } from 'town-shared/pro
 import { el } from 'town-shared/dom'
 import { residentPortrait } from 'town-shared/portraits'
 import type { GameModeLook } from '.'
+import { gameModeArt } from './art'
 import './storyline.css'
 
 // 故事模式的画面：不改着色，地图上一层界面（上帝视角）。
-// 顶上一条横幅：故事的名字、此刻到了哪一幕。左边一列角色：头像、名字、在故事里是谁，轮到谁亮绿圈。
+// 顶上一条横幅：故事的名字、此刻到了哪一幕，左端一条素材画——剧本（开局设置）带自己的素材包
+// （assets/gameModes/storyline/<剧本名>/banner.png，见 art.ts），剧本没带的用故事模式通用的那条。
+// 左边一列角色：头像、名字、在故事里是谁，轮到谁亮绿圈。
 // 右边一块板子：时间线（过去的、正在演的、还没到的节拍）和里程碑（达成的打勾，写着谁宣布的、怎么说的；
 // 收场时没达成的划掉），收场后底下是收场白。底下一张卡片放戏里刚说的那段话和「心里」。
 // 名册每来一拍整层重画，状态没变时场景不会叫它。
@@ -57,6 +60,14 @@ export class StorylineLook implements GameModeLook {
 
   private banner(v: StorylineView) {
     const box = el('div', '', v.ended ? 'st-banner ended' : 'st-banner')
+    const art = gameModeArt('storyline', 'banner', v.title)
+    if (art) {
+      const img = document.createElement('img')
+      img.src = art
+      img.alt = ''
+      img.className = 'st-art'
+      box.append(img)
+    }
     box.append(el('b', v.title), el('span', v.notice))
     return box
   }
