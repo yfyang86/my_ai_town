@@ -1,5 +1,5 @@
 //! 提示词调校：写故事、生成人物这两处给模型的提示词，玩家可以在设定里改。三种用法：
-//! - 默认：随应用带的那一份；
+//! - 默认：随应用带的那一份——写故事的默认带着「讲究一点」那几段（见 default_modules）；
 //! - 风格：在默认的任务说明和输出格式之间插进几段——身份、背景、文风、例子、不要什么、交稿前自查，
 //!   输出格式不动，所以回复照样读得了；
 //! - 专业：整份模板自己写（任务说明连输出格式），占位符由这里换成实际的数。
@@ -103,10 +103,65 @@ fn clip(text: &str, max: usize) -> String {
     text.trim().chars().take(max).collect()
 }
 
-/// 默认的整份模板：任务说明、输出格式
+/// 默认的整份模板：任务说明、默认带的那几段、输出格式
 pub fn default_template(target: Target) -> String {
+    styled(target, &default_modules(target))
+}
+
+/// 默认模式带的几段。写故事带「讲究一点」：不换题材，只要求人物具体、目标相撞、节拍逼人做选择
+/// ——是对模型的要求，不保证每次都做到，但真模型比下来排出的人物和冲突更扎实。生成人物不带。
+/// 页面风格模式里的「讲究一点」预设（frontend/town-shared/src/prompts/presets.ts）和这里是同一份文字。
+pub fn default_modules(target: Target) -> Modules {
+    match target {
+        Target::Character => Modules::default(),
+        Target::Story => Modules {
+            role: "你是一位擅长群戏的编剧，习惯先想清楚每个人要什么、怕什么，再排事情".into(),
+            background: String::new(),
+            style: "人物介绍写具体的习惯和物件，不写「善良」「聪明」这类评语。\
+节拍的宣布像镇上真会传开的一句话，有时间、地点和一件看得见的事。"
+                .into(),
+            example:
+                "人物：「老周，五十三，修了半辈子钟，自己从不戴表；欠着码头一笔钱，谁也没告诉。」\n\
+节拍宣布：「晌午，钟楼的钟多敲了一下。敲钟的不是老周。」"
+                    .into(),
+            nogos: "不要让角色的目标互不相干。\n\
+不要用「神秘」「复杂」「内心挣扎」这种空词代替具体的事。\n\
+不要把结局写进节拍里。\n\
+不要让所有人都通情达理。"
+                .into(),
+            rubrics: "每个角色的目标至少和另一个角色的目标直接相撞。\n\
+每个秘密都和某个节拍或某个别人的目标有关，说破了会改变一个人的选择。\n\
+任意两个角色之间，都说得出他们为什么要找对方谈。\n\
+每个节拍都逼着至少一个人当场做选择，而不只是通知一件事。\n\
+里程碑里至少有两个要当事人自己宣布，且两个不可能同时成。"
+                .into(),
+        },
+    }
+}
+
+/// 任务说明和输出格式之间插进这几段；身份换掉任务说明的头一句（「你是……。」），后面的任务照旧
+fn styled(target: Target, m: &Modules) -> String {
     let (head, contract) = parts(target);
-    format!("{head}{contract}")
+    let head = match (m.role.trim(), head.split_once('。')) {
+        ("", _) | (_, None) => head.to_string(),
+        (role, Some((_, rest))) => format!("{}。{rest}", role.trim_end_matches(['。', '.'])),
+    };
+    let blocks: String = [
+        ("【背景】", &m.background),
+        ("【文风和气质】", &m.style),
+        ("【可以参考的例子】只学味道，不要照抄", &m.example),
+        ("【不要这样写】", &m.nogos),
+        ("【交稿前逐条对照，不合的改到合为止】", &m.rubrics),
+    ]
+    .iter()
+    .filter(|(_, text)| !text.trim().is_empty())
+    .map(|(label, text)| format!("{label}\n{}\n", text.trim()))
+    .collect();
+    if blocks.is_empty() {
+        format!("{head}{contract}")
+    } else {
+        format!("{}\n{blocks}{contract}", head.trim_end())
+    }
 }
 
 /// 模板里的占位符和各自换成什么（给页面写说明用）
@@ -154,39 +209,13 @@ impl Tuning {
         self
     }
 
-    /// 这份设置下的整份模板（占位符还没换）。默认模式和随应用带的一字不差。
+    /// 这份设置下的整份模板（占位符还没换）。默认模式就是随应用带的那一份。
     pub fn template(&self, target: Target) -> String {
         match self.mode {
             Mode::Default => default_template(target),
             Mode::Pro if self.pro.trim().is_empty() => default_template(target),
             Mode::Pro => format!("{}\n", self.pro.trim_end()),
-            Mode::Style => {
-                let (head, contract) = parts(target);
-                let m = &self.modules;
-                // 身份换掉默认任务说明的头一句（「你是……。」），后面的任务照旧
-                let head = match (m.role.trim(), head.split_once('。')) {
-                    ("", _) | (_, None) => head.to_string(),
-                    (role, Some((_, rest))) => {
-                        format!("{}。{rest}", role.trim_end_matches(['。', '.']))
-                    }
-                };
-                let blocks: String = [
-                    ("【背景】", &m.background),
-                    ("【文风和气质】", &m.style),
-                    ("【可以参考的例子】只学味道，不要照抄", &m.example),
-                    ("【不要这样写】", &m.nogos),
-                    ("【交稿前逐条对照，不合的改到合为止】", &m.rubrics),
-                ]
-                .iter()
-                .filter(|(_, text)| !text.trim().is_empty())
-                .map(|(label, text)| format!("{label}\n{}\n", text.trim()))
-                .collect();
-                if blocks.is_empty() {
-                    format!("{head}{contract}")
-                } else {
-                    format!("{}\n{blocks}{contract}", head.trim_end())
-                }
-            }
+            Mode::Style => styled(target, &self.modules),
         }
     }
 
@@ -232,7 +261,7 @@ impl Tuning {
 mod tests {
     use super::*;
 
-    /// 默认模式的模板就是随应用带的那一份；风格模式只在任务说明和输出格式之间插几段、身份换掉头一句，
+    /// 默认模式的模板就是随应用带的那一份；风格模式在任务说明和输出格式之间插填了的几段、身份换掉头一句，
     /// 输出格式原样在后面；专业模式用自己写的整份，空着退回默认，少了要紧的东西有提醒；太长的截掉。
     #[test]
     fn tuned_templates_keep_the_output_contract_unless_the_whole_template_is_rewritten() {
@@ -258,12 +287,13 @@ mod tests {
             let nogos = text.find("【不要这样写】\n不要大团圆。").unwrap();
             assert!(style < nogos && nogos < text.find(contract).unwrap());
             assert!(!text.contains("【背景】"), "空着的段不写");
-            // 一段都没填的风格模式和默认一样
+            // 一段都没填的风格模式：只有任务说明和输出格式，默认带的那几段也不带
             let empty = Tuning {
                 mode: Mode::Style,
                 ..Tuning::default()
             };
-            assert_eq!(empty.template(target), plain);
+            assert_eq!(empty.template(target), format!("{head}{contract}"));
+            assert!(plain.ends_with(contract));
             let pro = Tuning {
                 mode: Mode::Pro,
                 pro: "只写一句话。".into(),
@@ -290,6 +320,17 @@ mod tests {
                 assert!(plain.contains(mark), "默认模板里该有占位符 {mark}");
             }
         }
+        // 写故事的默认带着「讲究一点」那几段；生成人物的默认什么都不带
+        let story = default_template(Target::Story);
+        assert!(story.starts_with("你是一位擅长群戏的编剧"));
+        assert!(story.contains(
+            "【交稿前逐条对照，不合的改到合为止】\n每个角色的目标至少和另一个角色的目标直接相撞。"
+        ));
+        let (head, contract) = parts(Target::Character);
+        assert_eq!(
+            default_template(Target::Character),
+            format!("{head}{contract}")
+        );
         let long = Tuning {
             mode: Mode::Style,
             modules: Modules {

@@ -77,7 +77,8 @@ export const STORY_PRESETS: PromptPreset[] = [
   {
     id: 'craft',
     name: '讲究一点',
-    hint: '不换题材，只把人物和冲突排得更扎实',
+    // 写故事的默认提示词带的就是这几段（crates/agent/src/tuning.rs 的 default_modules），两边是同一份文字
+    hint: '默认就带着：不换题材，只把人物和冲突排得更扎实',
     modules: {
       role: '你是一位擅长群戏的编剧，习惯先想清楚每个人要什么、怕什么，再排事情',
       background: '',
