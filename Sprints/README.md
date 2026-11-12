@@ -43,3 +43,9 @@ An optional ruleset on the storyline mode, built from SRD 5.1. The plan, scope a
 4. Git flow: `dev` created from `main`; each sprint is a PR into `dev`, merged once CI passes.
 5. Storyline strength: **scheduled beats + soft goals** — events fire on time, milestones are tracked, agents still decide.
 6. Platforms: shared frontend; new manager endpoints exist in both the Node and the Rust manager. Only the desktop/web path can be run in the development environment; phone and desktop shells are compile-checked.
+
+## After the two roadmaps
+
+| Sprint | Theme | State |
+| --- | --- | --- |
+| 13 | `main` merged in; town log (chat, thoughts, events, agent traces) with download; twelve-character story playtest | merged into `dev` |

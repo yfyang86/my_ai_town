@@ -17,6 +17,7 @@ pub mod process;
 pub mod recording;
 pub mod story;
 pub mod tasks;
+pub mod transcript;
 
 pub mod agent_worker;
 

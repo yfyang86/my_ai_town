@@ -31,6 +31,7 @@ Requests carry a `request_id`; the receipt echoes it to the requester, and state
 | `config.rs`, `application.rs`, `models.rs` | Providers, credentials, model settings |
 | `recording.rs`, `recording_commands.rs` | Broadcast recorder |
 | `story.rs` | Story editor step shared by both managers: outline → draft via the model, or tidy an edited draft. `rules: "srd5"` in the request asks for sheets, checks and encounters as well |
+| `transcript.rs` | The town log: every broadcast passes through `Transcript::note`, which appends world events to `transcript/event.jsonl`, speeches to `chat.jsonl` and new roster thoughts to `thought.jsonl`; `ResidentDriver` copies each agent trace record to `trace.jsonl`. Always on when the world has a town folder; lines carry `kind`, wall time `at`, `world` id and sim `minutes`. `read` returns the raw files for the managers |
 | `narrator.rs` | One worker thread that asks a model for narrator rulings; `ResidentDriver::narrate` feeds it from `World::game_mode_rulings` each tick and returns answers through `World::game_mode_rule` |
 | `maps.rs` | Map validation |
 | `bin/town-map.rs` | One-shot worker used by the Node manager |

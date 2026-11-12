@@ -104,7 +104,8 @@ export function createPrefabSetup(d: {
   let joining = -1
 
   const waiters: Waiter[] = []
-  function waitFor<T>(match: (m: ServerMsg) => T | undefined, ms = 15000) {
+  // 等得宽一些：人多的时候画面忙，页面处理回执会慢（世界那头一步只要零点几秒）
+  function waitFor<T>(match: (m: ServerMsg) => T | undefined, ms = 45000) {
     return new Promise<T>((resolve, reject) => {
       const waiter: Waiter = { match, resolve: resolve as (v: unknown) => void }
       waiters.push(waiter)

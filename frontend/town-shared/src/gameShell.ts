@@ -1,6 +1,7 @@
 // 游戏页外壳：定界面类型、放界面部件、建连接和各面板，服务端消息按面板登记顺序分发。
 // 地图页 ⇄ 设定中心视图切换（进入设定暂停模拟，返回恢复进入前速度）。
 // 静态图集先画（ws 断了图也在），Roster 流驱动活物层与各面板；人物身份只来自服务器名册。
+import { openRecords } from './shell/records'
 import './style.css'
 import { createGameAudio } from './audio/controller'
 import type { MusicWorld } from './audio/scene'
@@ -187,6 +188,9 @@ export function startGameShell(
     help: { openGuide: () => guide.open(), resetTips },
     onOpen: () => panels.avatar.stopMoving(),
   })
+  // 菜单里的「记录」：整份下载对话、想法、世界日志和模型轨迹（重演录像时没有小镇，不接）
+  const records = document.getElementById('open-records')
+  if (records) records.onclick = () => openRecords({ id: selectedMap.id, name: selectedMap.name })
   const back = installBack(panels)
   const chrome = installMobileChrome({
     speeds: panels.speeds,

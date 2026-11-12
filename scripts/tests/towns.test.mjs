@@ -250,6 +250,14 @@ test('preview/save/open/reopen/reset/isolation work with actual hosts and persis
     await api(`/${a.id}/close`, {})
     const closed = (await api('')).towns.find((town) => town.id === a.id)
     assert.equal(closed.running, false)
+    // 记录：世界进程写在小镇目录里的世界日志原样给回来（每行一条 JSON），只给要的种类
+    const record = await api(`/${a.id}/transcript?kinds=event,chat`)
+    assert.deepEqual(Object.keys(record.kinds).sort(), ['chat', 'event'])
+    const logged = record.kinds.event
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+    assert(logged.length > 0 && logged.every((line) => line.kind === 'event' && line.text))
     // 列表带着存档停在哪：选镇页据此画时钟牌、头像和那一刻的天色
     assert.equal(closed.progress.residents, 1)
     assert.equal(closed.progress.cast[0].template_id, 'builtin_ashu')

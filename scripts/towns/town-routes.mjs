@@ -2,6 +2,11 @@
 import { HttpError } from './http.mjs'
 import { safeId } from './storage.mjs'
 import { positions } from './positions.mjs'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+
+/** 记录的种类，也是小镇目录 transcript/ 里的文件名（世界进程写的，见 crates/host/src/transcript.rs） */
+const TRANSCRIPT_KINDS = ['chat', 'thought', 'event', 'trace']
 
 export function createTownRoutes({ source, storage, hosts, serial }) {
   const inTown = (id, fn) => serial('town-' + safeId(id), fn)
@@ -40,6 +45,25 @@ export function createTownRoutes({ source, storage, hosts, serial }) {
         if (url.searchParams.has('hash') && url.searchParams.get('hash') !== document.content_hash)
           throw Error('地图已变化，请返回小镇列表重新打开')
         return document
+      },
+    ],
+    // 记录：说过的话、想法、世界日志、Agent 轨迹。每种给它那个文件的原文（每行一条 JSON），没记过的给空串
+    [
+      'GET',
+      /^\/api\/towns\/([a-z0-9-]+)\/transcript$/,
+      async ({ params: [id], url }) => {
+        const wanted = (url.searchParams.get('kinds') ?? '').split(',').filter(Boolean)
+        const kinds = {}
+        for (const kind of TRANSCRIPT_KINDS) {
+          if (wanted.length && !wanted.includes(kind)) continue
+          kinds[kind] = await fs
+            .readFile(path.join(storage.town(id), 'transcript', `${kind}.jsonl`), 'utf8')
+            .catch((error) => {
+              if (error.code === 'ENOENT') return ''
+              throw error
+            })
+        }
+        return { kinds }
       },
     ],
     [
