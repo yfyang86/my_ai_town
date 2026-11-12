@@ -91,7 +91,7 @@ The page does not keep its own copy: the world process writes the log (see proto
 
 | Part | What it does |
 | --- | --- |
-| 默认 | Shows the shipped prompt |
+| 默认 | Shows the shipped prompt (the story default already carries the 讲究一点 blocks; a blank 风格模式 is the bare prompt without them) |
 | 风格模式 | Pick a preset (`prompts/presets.ts`: six for stories, five for characters) or start blank, then edit six modules: 身份, 背景, 文风, 例子, 不要, 自查. 「看拼好的整份提示词」 asks the manager for the composed template |
 | 专业模式 | The whole template in one editor, with the placeholders listed; can be reset to the default or seeded from the composed style template |
 | 试一试 · 比一比 | One input (a story or outline with cast/days/rules, or a one-line character brief), two prompts chosen from 默认 / 正在改的 / 已保存的 / any preset. Both run at once; results are rendered side by side with time and model, and 「就用这一份」 adopts a side as the current tuning |

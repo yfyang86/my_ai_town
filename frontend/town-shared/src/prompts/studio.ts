@@ -248,6 +248,14 @@ export function openPromptStudio() {
       const fold = el('details', '', 'ps-fold')
       const pre = el('pre', v.defaults[target].template, 'ps-pre')
       fold.append(el('summary', '看默认的提示词'), pre)
+      if (target === 'story')
+        parts.push(
+          el(
+            'p',
+            '默认已经带着「讲究一点」那几段：人物写具体的习惯和物件，目标要相撞，节拍逼人当场做选择。这些是对模型的要求，不保证每次都做到。',
+            'ps-hint'
+          )
+        )
       parts.push(fold)
     } else if (t.mode === 'style') {
       const pick = el('section', '', 'ps-card')
