@@ -22,6 +22,8 @@ pub struct Choices {
     pub presets: Vec<(String, String)>,
     /// 开着第五版规则：草稿里另有角色卡、检定和遭遇战
     pub rules: bool,
+    /// 提示词怎么调的（设定里存的，或者试一试时请求里带的）
+    pub tuning: crate::tuning::Tuning,
 }
 
 fn pairs(value: &Value, id: &str) -> Vec<(String, String)> {
@@ -54,11 +56,14 @@ impl Choices {
             kinds,
             presets,
             rules: body["rules"] == "srd5",
+            tuning: Default::default(),
         })
     }
 }
 
-const PROMPT: &str = r#"你是一个故事编排者。下面是用户给的一段故事或提纲，请把它改编成一座小镇里由 CAST 个 AI 角色演出、历时 DAYS 天的群戏。
+/// 默认的整份模板（任务说明和输出格式），写到提纲之前为止；占位符 CAST、DAYS、PRESET_IDS、KINDS 由 prompt() 换。
+/// 玩家可以在设定里调（见 tuning.rs）；默认模式发出去的和这里一字不差。
+pub(crate) const TEMPLATE: &str = r#"你是一个故事编排者。下面是用户给的一段故事或提纲，请把它改编成一座小镇里由 CAST 个 AI 角色演出、历时 DAYS 天的群戏。
 角色都是自己拿主意的 AI：你只安排「到点发生什么」「每个人想要什么」，不要替角色写台词，也不要规定结局，让故事可以走偏。
 
 只输出一个 JSON 对象，不要任何解释，结构如下（钟点 minute 是当天第几分钟，0–1439；day 从 1 数）：
@@ -98,8 +103,6 @@ const PROMPT: &str = r#"你是一个故事编排者。下面是用户给的一�
 - milestones 用 3–6 个，when 有三种：{"kind":"beat","beat":节拍编号} 这个节拍发生了；{"kind":"gather","place":地点名字,"seats":[座号],"count":人数} 这些人里至少几个同时到了这个地点；{"kind":"declare","seats":[座号]} 由这些人里的某一个宣布它发生了。结局性的事（谁赢了、谁认了错、买卖成没成）用 declare，交给当事人自己宣布。secret 为 true 时只有能宣布它的人知道。
 - 收场要排在最后一个节拍之后。
 - 用和提纲相同的语言写。
-
-提纲：
 "#;
 
 /// 给模型的提示词
@@ -116,10 +119,11 @@ pub fn prompt(outline: &str, cast: u64, days: u64, choices: &Choices) -> String 
         .map(|(id, name)| format!("{id}（{name}）"))
         .collect::<Vec<_>>()
         .join("、");
-    let (head, tail) = PROMPT.split_once("提纲：").unwrap_or((PROMPT, ""));
+    let template = choices.tuning.template(crate::tuning::Target::Story);
     format!(
-        "{}{}提纲：{tail}{}",
-        head.replace("CAST", &cast.to_string())
+        "{}\n{}提纲：\n{}",
+        template
+            .replace("CAST", &cast.to_string())
             .replace("DAYS", &days.to_string())
             .replace("PRESET_IDS", &ids)
             .replace("KINDS", &join(&choices.kinds)),
@@ -578,6 +582,7 @@ mod tests {
             ],
             presets: vec![("coastal-village".into(), "海岸乡镇".into())],
             rules: false,
+            tuning: Default::default(),
         }
     }
 

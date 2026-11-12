@@ -1,3 +1,4 @@
+import './promptOptions'
 import 'town-shared/style.css'
 import shell from 'town-shared/gameShell.html?raw'
 import { $ } from 'town-shared/dom'

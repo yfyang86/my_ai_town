@@ -14,6 +14,7 @@ pub mod narrator;
 pub mod persistence;
 pub mod population;
 pub mod process;
+pub mod prompts;
 pub mod recording;
 pub mod story;
 pub mod tasks;

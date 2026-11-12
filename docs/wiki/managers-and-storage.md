@@ -21,7 +21,10 @@ POST bodies are JSON with header `x-town-client: 1`, at most 1 MB. Errors are `{
 | GET/POST `/prefabs` | Which scripted towns the selection page lists: `{hidden: [prefab id]}` | ✓ | ✓ |
 | GET `/options` | Creator options, model availability | full | `{generation: 'client', model}` |
 | POST `/parse` | One sentence → build plan (model call) | via `town-map parse` | in-process |
-| POST `/story` | Story editor: `{outline, cast, days, rules?}` → model writes a story draft (`rules: "srd5"` adds character sheets, checks and encounters); `{draft}` → tidy and validate an edited draft (no model call) | via `town-map story` | in-process |
+| POST `/story` | Story editor: `{outline, cast, days, rules?}` → model writes a story draft (`rules: "srd5"` adds character sheets, checks and encounters; `prompt: <tuning>` overrides the saved prompt tuning for this call); `{draft}` → tidy and validate an edited draft (no model call) | via `town-map story` | in-process |
+| GET/POST `/prompts` | Prompt tuning: read `{settings, defaults, limits}`; save `{settings}` | via `town-map prompts` / `save-prompts` | in-process |
+| POST `/prompts/preview` | `{target, tuning}` → the composed template and warnings, nothing saved | ✓ | ✓ |
+| POST `/prompts/character` | `{brief, tuning?}` → one generated character, nothing saved (for comparing prompts) | ✓ | ✓ |
 | GET `/:id/transcript?kinds=chat,thought,event,trace` | The town log as written by the world process: `{kinds: {chat: "<jsonl>", …}}`, one raw JSONL string per requested kind (all four when `kinds` is omitted), empty when nothing was recorded | ✓ | ✓ |
 | POST `/preview` | Run generator, return draft | ✓ | refuses (page generates) |
 | POST `/drafts` | Validate a page-generated map, return draft | — | ✓ |

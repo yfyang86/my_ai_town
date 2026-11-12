@@ -88,6 +88,23 @@ test('preview/save/open/reopen/reset/isolation work with actual hosts and persis
     const tidied = (await api('/story', { draft: edited })).draft
     assert.deepEqual([tidied.beats[1].minute, tidied.beats[1].who], [1439, [1]])
     await assert.rejects(api('/story', { outline: '', cast: 3, days: 1 }), /提纲/)
+    // 提示词调校：默认是随应用带的那一份；存一份风格模式的，拼出来的模板里有那一段、输出格式还在；
+    // 写故事时请求里带一份调法也认（设定里「试一试」）；专业模式少了要紧的东西有提醒
+    const prompts = await api('/prompts')
+    assert.equal(prompts.settings.story.mode, 'default')
+    const styled = { mode: 'style', modules: { style: '短句，留白。' }, pro: '', preset: 'gulong' }
+    const kept = await api('/prompts', { settings: { ...prompts.settings, story: styled } })
+    assert.equal(kept.settings.story.modules.style, '短句，留白。')
+    const composed = await api('/prompts/preview', { target: 'story', tuning: kept.settings.story })
+    assert(composed.template.includes('【文风和气质】\n短句，留白。'))
+    assert(composed.template.includes('只输出一个 JSON 对象'))
+    const bare = { mode: 'pro', modules: {}, pro: '随便写点什么', preset: '' }
+    assert((await api('/prompts/preview', { target: 'story', tuning: bare })).warnings.length > 0)
+    const tried = await api('/story', { outline: '镇上丢了一口钟', cast: 3, days: 1, prompt: bare })
+    assert.equal(tried.draft.cast.length, 3)
+    assert.equal((await api('/prompts/character', { brief: '修钟的老人' })).model, 'mock')
+    await api('/prompts', { settings: prompts.settings })
+    assert.equal((await api('/prompts')).settings.story.mode, 'default')
     await assert.rejects(api('/story', { draft: { title: '空的' } }), /角色/)
     // 预览后改的名字随保存提交：只换名字、重算摘要，布局就是预览的那一版，开镇时照样通过校验
     const body = {

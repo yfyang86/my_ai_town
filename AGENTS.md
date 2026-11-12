@@ -13,7 +13,7 @@
 - 录像：世界进程把发给页面的广播录进 `towns/<小镇 ID>/recordings/`（`crates/host/src/recording.rs`，属于用户数据）；`scripts/replay/` 读录像，在 `game.html?replay`（`frontend/town-2d/src/replay/`）里重演画面拍素材，不开世界、不调模型。录像怎么读只写在 `scripts/replay/reel.mjs` 一处。
 - 记录：世界进程把说过的话、想法、世界日志和村民 Agent 的轨迹一直追加进 `towns/<小镇 ID>/transcript/`（`crates/host/src/transcript.rs`，属于用户数据）；两个管理服务的 `/api/towns/<小镇 ID>/transcript` 原样发回，页面菜单里的「记录」（`frontend/town-shared/src/shell/records.ts`）拼成 JSON、JSONL 或文字下载。
 - `data/maps/2d-town/map.json` 是发布的默认地图（「我的小镇」），`data/maps/spring-valley/map.json`、`data/maps/broken-towers/map.json` 是另外两张随应用发的内置地图（冰雪的「温泉谷」、末日废土的「断楼城」）；内置小镇名单在 `scripts/towns/storage.mjs` 和 `crates/manager/src/storage.rs` 的 `BUILTIN_TOWNS`，两边一致。`data/mapgen/` 是公共生成模板；`data/props/` 是公共道具定义。玩家地图、道具、居民存档、记忆和日志属于用户目录 `towns/<小镇 ID>/`，不迁入仓库的数据目录。
-- `config/` 是应用配置和村民库；密钥位于被忽略的 `config/credentials.json`。
+- `config/` 是应用配置和村民库；密钥位于被忽略的 `config/credentials.json`。玩家在设定里调的提示词（写故事、生成人物）存在用户配置目录的 `prompts.json`，怎么拼只写在 `crates/agent/src/tuning.rs` 一处；写故事的默认带着「讲究一点」那几段（`default_modules`），生成人物的默认不带。
 - 不从废弃项目重新生成地图。内置地图由 `scripts/maps/` 下各自的设计脚本生成（`default-town.mjs`、`spring-valley.mjs`、`broken-towers.mjs`，重跑即重写地图并用 `scripts/mapgen/document.mjs` 的 `seal` 封摘要）；改了检查逻辑与坐标，再运行 `target/debug/town-map validate < <地图文件>`。
 - `data/scene-assets/` 的清单用于 HD-2D 空间校验和旧地图指纹，历史模型名不代表发布 GLB。不要因清理名称改变清单；修改参数或版本前先解决已有地图与存档的兼容。
 - 旧 3D 存档不自动转换或删除；删除用户数据须有明确指令。

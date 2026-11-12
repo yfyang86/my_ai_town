@@ -45,6 +45,8 @@ The world stays paused until the player presses play.
 
 `town-shared/src/prefabs/scenario.ts` holds the `StoryDraft` type and turns a draft into a generator spec (`specOf`), a storyline script (`scriptOf`) and a `Prefab` (`scenarioPrefab`). The game shell uses `prefabOf(creation.prefab) ?? scenarioPrefab(creation.scenario)`, so a story town opens the same setup screen as a hand-written scripted town. A draft with `rules` gets a 「规则」 option there (default 第五版规则, or 不掷骰).
 
+**Resuming a start.** The setup screen (`prefabs/setup.ts`) runs its steps one by one. It keeps the chosen settings and finished steps in `localStorage` (`town.prefabSetup`, one entry, keyed by world id) and takes who has already moved in from the town's population, not from its own replies. If the page is reloaded mid-way — worldview saved, mode not yet open — `gameShell.ts` reopens the screen (`prefabSetup.resume`) and one click continues from the step that stopped. The entry is cleared on finish and on 「跳过」.
+
 ## Game-mode looks and music
 
 `GameModeLook` (`town-2d/src/map/hd2d/gameModes/index.ts`): `apply(view, metre)` plus optional `mount(layer)` for DOM overlays, `addToScene`, `step`, `badges`, and ground/standing shaders. All looks are constructed for every scene and react to the view's `kind`.
@@ -82,3 +84,16 @@ Menu → 「记录」 (`town-shared/src/shell/records.ts`). The dialog asks whic
 | 文字 (`.md`) | one readable line per record; trace records are abbreviated |
 
 The page does not keep its own copy: the world process writes the log (see protocol-and-host → `transcript.rs`), so a download also covers what happened while no page was open.
+
+## Prompt studio
+
+`town-shared/src/prompts/studio.ts` — 「提示词」, opened from the launcher's 设定 and from the in-game settings (`settings/prompts.ts`). One dialog for both generation prompts (写故事 / 生成人物), built from the shared tokens and controls (`segmented`, `ui-chip`, `.set-row` at the entries).
+
+| Part | What it does |
+| --- | --- |
+| 默认 | Shows the shipped prompt (the story default already carries the 讲究一点 blocks; a blank 风格模式 is the bare prompt without them) |
+| 风格模式 | Pick a preset (`prompts/presets.ts`: six for stories, five for characters) or start blank, then edit six modules: 身份, 背景, 文风, 例子, 不要, 自查. 「看拼好的整份提示词」 asks the manager for the composed template |
+| 专业模式 | The whole template in one editor, with the placeholders listed; can be reset to the default or seeded from the composed style template |
+| 试一试 · 比一比 | One input (a story or outline with cast/days/rules, or a one-line character brief), two prompts chosen from 默认 / 正在改的 / 已保存的 / any preset. Both run at once; results are rendered side by side with time and model, and 「就用这一份」 adopts a side as the current tuning |
+
+Settings are saved explicitly from the dialog's own footer (`POST /api/towns/prompts`); they are application settings, not part of a town. The story trial needs the generator's place kinds and style presets, which `town-2d/src/promptOptions.ts` registers lazily for both pages.
