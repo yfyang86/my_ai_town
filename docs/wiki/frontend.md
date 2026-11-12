@@ -45,6 +45,8 @@ The world stays paused until the player presses play.
 
 `town-shared/src/prefabs/scenario.ts` holds the `StoryDraft` type and turns a draft into a generator spec (`specOf`), a storyline script (`scriptOf`) and a `Prefab` (`scenarioPrefab`). The game shell uses `prefabOf(creation.prefab) ?? scenarioPrefab(creation.scenario)`, so a story town opens the same setup screen as a hand-written scripted town. A draft with `rules` gets a 「规则」 option there (default 第五版规则, or 不掷骰).
 
+**Resuming a start.** The setup screen (`prefabs/setup.ts`) runs its steps one by one. It keeps the chosen settings and finished steps in `localStorage` (`town.prefabSetup`, one entry, keyed by world id) and takes who has already moved in from the town's population, not from its own replies. If the page is reloaded mid-way — worldview saved, mode not yet open — `gameShell.ts` reopens the screen (`prefabSetup.resume`) and one click continues from the step that stopped. The entry is cleared on finish and on 「跳过」.
+
 ## Game-mode looks and music
 
 `GameModeLook` (`town-2d/src/map/hd2d/gameModes/index.ts`): `apply(view, metre)` plus optional `mount(layer)` for DOM overlays, `addToScene`, `step`, `badges`, and ground/standing shaders. All looks are constructed for every scene and react to the view's `kind`.

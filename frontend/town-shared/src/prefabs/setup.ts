@@ -35,6 +35,21 @@ import {
 
 type Waiter = { match: (m: ServerMsg) => unknown; resolve: (v: unknown) => void }
 
+/** 开局做到一半时记在浏览器里的进度：刷新页面后照它接着做。只记一份，认世界编号 */
+const PROGRESS_KEY = 'town.prefabSetup'
+interface Progress {
+  world: string
+  prefab: string
+  players: number
+  models: (ModelChoice | null)[]
+  needs: boolean
+  picks: [string, string][]
+  seeds: [string, number][]
+  rules: [string, number | boolean][]
+  personas: [number, Partial<PrefabPersona>][]
+  done: Record<'worldview' | 'needs' | 'climate' | 'furnished' | 'limits' | 'dressed', boolean>
+}
+
 /** 固定种子时输入框里先填的数 */
 const DEFAULT_SEED = 51
 
@@ -100,6 +115,63 @@ export function createPrefabSetup(d: {
   let dressed = false
   let modeSaved = false
   const joined: (string | null)[] = []
+
+  /** 把选好的设置和做到哪一步记下来；浏览器不让存就算了 */
+  function remember() {
+    const world = d.worldSettings.state()?.world_id
+    if (!prefab || !world) return
+    const progress: Progress = {
+      world,
+      prefab: prefab.id,
+      players,
+      models,
+      needs,
+      picks: [...picks],
+      seeds: [...seeds],
+      rules: [...ruleValues],
+      personas: [...personaEdits],
+      done: {
+        worldview: worldviewSaved,
+        needs: needsSaved,
+        climate: climateSaved,
+        furnished,
+        limits: limitsSaved,
+        dressed,
+      },
+    }
+    try {
+      localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress))
+    } catch {
+      // 存不了：刷新后接不上，这一页里照常能接着做
+    }
+  }
+  function forget() {
+    try {
+      localStorage.removeItem(PROGRESS_KEY)
+    } catch {
+      // 同上
+    }
+  }
+  /** 记着的进度是不是这个世界、这个预制小镇的 */
+  function remembered(p: Prefab): Progress | null {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) ?? 'null') as Progress | null
+      return saved?.world === d.worldSettings.state()?.world_id && saved?.prefab === p.id
+        ? saved
+        : null
+    } catch {
+      return null
+    }
+  }
+  /** 谁已经住进来了以镇上的人口为准：回执没等到、页面刷新过，都不会把同一个人再请一遍 */
+  async function syncJoined(p: Prefab) {
+    d.send({ type: 'get_population' })
+    const population: PopulationView = await waitFor((m) =>
+      m.type === 'population' ? m.population : undefined
+    )
+    for (let i = 0; i < players; i++)
+      joined[i] = population.residents.find((r) => r.template_id === p.roster[i])?.id ?? null
+  }
   /** 正在请入住的号码（从 0 数），头像上的号码变成橙色 */
   let joining = -1
 
@@ -576,12 +648,15 @@ export function createPrefabSetup(d: {
     status = ''
     render()
     const ws = d.worldSettings
+    remember()
     try {
+      await syncJoined(p)
       if (!worldviewSaved) {
         status = '正在写世界观…'
         render()
         await saved((done) => ws.saveWorldview(p.worldview, done))
         worldviewSaved = true
+        remember()
       }
       if (!needsSaved) {
         status = '正在设定吃喝睡…'
@@ -590,6 +665,7 @@ export function createPrefabSetup(d: {
         if (revision === undefined) throw Error('还没读到世界设定')
         await saved((done) => ws.savePhysiology(needs ? p.needs : ALL_OFF, revision, done))
         needsSaved = true
+        remember()
       }
       if (p.climate && !climateSaved) {
         status = '正在定气候…'
@@ -597,18 +673,21 @@ export function createPrefabSetup(d: {
         const climate = p.climate
         await saved((done) => ws.saveClimate(climate, done))
         climateSaved = true
+        remember()
       }
       if (p.furnish && !furnished) {
         status = '正在布置地图上的东西…'
         render()
         await furnish(p.furnish)
         furnished = true
+        remember()
       }
       if (p.limits && !limitsSaved) {
         status = '正在调额度…'
         render()
         await setLimits(p.limits)
         limitsSaved = true
+        remember()
       }
       for (let i = 0; i < players; i++) {
         if (joined[i]) continue
@@ -623,6 +702,7 @@ export function createPrefabSetup(d: {
         render()
         await dress(p)
         dressed = true
+        remember()
       }
       if (!modeSaved) {
         status = '正在打开玩法…'
@@ -640,6 +720,7 @@ export function createPrefabSetup(d: {
         await saved((done) => ws.saveGameMode(choice, done))
         modeSaved = true
       }
+      forget()
       running = false
       root.hidden = true
       d.onFinish(joined.filter((id): id is string => !!id))
@@ -653,6 +734,7 @@ export function createPrefabSetup(d: {
 
   function close() {
     if (running) return
+    forget()
     root.hidden = true
     // 跳过：交回首次对话框，像普通小镇一样自己设
     d.worldSettings.setFirstRun(null)
@@ -691,6 +773,35 @@ export function createPrefabSetup(d: {
       root.hidden = false
       d.send({ type: 'get_resident_library', filter: { kind: 'builtin' } })
       render()
+    },
+    /** 上次开局做到一半（世界观已经写了、玩法还没打开）页面就没了：照记着的设置和进度打开，点一下接着做。
+     *  没有记着这个世界的进度就不打开，返回 false */
+    resume(p: Prefab) {
+      const saved = remembered(p)
+      if (!saved || !root.hidden) return false
+      prefab = p
+      players = Math.min(Math.max(saved.players, p.players.min), p.players.max)
+      models = saved.models
+      needs = saved.needs
+      picks.clear()
+      seeds.clear()
+      ruleValues.clear()
+      personaEdits.clear()
+      for (const [k, v] of saved.picks) picks.set(k, v)
+      for (const [k, v] of saved.seeds) seeds.set(k, v)
+      for (const [k, v] of saved.rules) ruleValues.set(k, v)
+      for (const [k, v] of saved.personas) personaEdits.set(k, v)
+      worldviewSaved = saved.done.worldview
+      needsSaved = saved.done.needs
+      climateSaved = saved.done.climate
+      furnished = saved.done.furnished
+      limitsSaved = saved.done.limits
+      dressed = saved.done.dressed
+      status = '上次开局做到一半：点「开始这一局」从停下的那一步接着做。'
+      root.hidden = false
+      d.send({ type: 'get_resident_library', filter: { kind: 'builtin' } })
+      render()
+      return true
     },
     /** 模型配置变了（连上了新模型）：重画选择框 */
     refresh() {
