@@ -8,7 +8,12 @@ use serde_json::{json, Value};
 /// 请求里带 draft：理一遍、查一遍交回去，不调模型。
 /// 带 outline：调一次模型（mock 时用固定的回复），回复里补上模型和服务商。
 pub fn draft(app: &Application, body: &Value, mock: bool) -> Result<Value, HostError> {
-    let choices = Choices::of(body).map_err(HostError::Runtime)?;
+    let mut choices = Choices::of(body).map_err(HostError::Runtime)?;
+    // 提示词照设定里调的来；请求里带了 prompt（设定里「试一试」）就用带的那一份
+    choices.tuning = match &body["prompt"] {
+        Value::Null => crate::prompts::load(app).story,
+        given => crate::prompts::tuning_of(given)?,
+    };
     if body["draft"].is_object() {
         let draft = story::tidy(&body["draft"], &choices).map_err(HostError::Runtime)?;
         return Ok(json!({ "draft": draft }));

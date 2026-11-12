@@ -19,6 +19,7 @@ pub mod runtime;
 pub mod session;
 pub mod story;
 pub mod tools;
+pub mod tuning;
 pub mod view;
 
 pub use error::AgentError;

@@ -12,6 +12,7 @@ import { createProviderListPage } from './settings/providerList'
 import { createSoundPage } from './settings/sound'
 import { createDisplayPage } from './settings/display'
 import { createLimitsPage } from './settings/limits'
+import { createPromptsPage } from './settings/prompts'
 import { createSettingsNav } from './settings/nav'
 import { $ } from './dom'
 import { isCompact } from './platform'
@@ -98,6 +99,7 @@ export function initSettingsCenter(deps: CenterDeps) {
     providers,
     createModelPage(pageDeps),
     createLimitsPage(pageDeps, deps.townPrice),
+    createPromptsPage(),
     createSoundPage(deps.game, deps.audio),
     createDisplayPage(deps.map, deps.game),
   ]

@@ -4,6 +4,7 @@
 // 入口是右上角的「设定」方钮。还没有能用的模型时，品牌下面一张「还差一步」的提示卡：应用带着内置模型就请玩家下载它（下载时卡片换成进度），
 // 也可以连在线服务；点「以后再说」缩成一行小字，「设定」上留个小绿点。内置模型有新版本、又关了自动更新时，
 // 「设定」上也亮小绿点。
+import { openPromptStudio } from 'town-shared/prompts/studio'
 import { effectsPreference } from 'town-shared/audio/effects'
 import { storyMusicPreference } from 'town-shared/audio/controller'
 import { button, el, query } from 'town-shared/dom'
@@ -172,6 +173,21 @@ export function installHomeSettings(deps: { music: { enabled(): boolean; toggle(
   const toolRows = el('div', '', 'set-rows')
   const tool = el('section', '', 'spage')
   tool.append(el('h2', '建镇用的模型'), toolRows)
+  // 提示词：写故事、生成人物时模型照着的那段话
+  const prompts = el('section', '', 'spage')
+  const promptRows = el('div', '', 'set-rows')
+  promptRows.append(
+    settingRow(
+      '写故事 · 生成人物',
+      '换一种风格、逐段改，或者整份自己写；拿同一段故事让两份提示词各跑一次，并排比。',
+      button('打开', () => openPromptStudio())
+    )
+  )
+  prompts.append(
+    el('h2', '提示词'),
+    el('p', '模型写故事、写人物时照着的那段话。所有小镇共用。', 'hint'),
+    promptRows
+  )
   const sound = createSoundPage(false, {
     music: deps.music,
     story: storyMusicPreference,
@@ -183,6 +199,7 @@ export function installHomeSettings(deps: { music: { enabled(): boolean; toggle(
     builtin,
     models,
     tool,
+    prompts,
     sound.el,
     display.el,
     el('p', '世界观、村民、调用额度跟着小镇走，进入小镇后点「设定」修改。', 'hs-note')

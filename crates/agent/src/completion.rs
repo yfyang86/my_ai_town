@@ -193,7 +193,39 @@ pub const CONNECTION_TEST_PROMPT: &str = "这是连接测试。只回复两个�
 
 /// 让模型按一句话描述生成新村民的初始设定：只要 JSON，背景是入村前的自述，不写小镇里发生过的事。
 /// `taken_names` 是不能重复的姓名，`places` 是这张地图的地点名；提示词不写死任何地名。
+/// 生成人物的默认模板（任务说明和输出格式），写到「描述：」之前为止；占位符 TAKEN_NAMES、PLACE_NAMES、
+/// LOOK_OPTIONS 由 template_prompt 换。玩家可以在设定里调（见 tuning.rs）。
+pub(crate) const TEMPLATE_PROMPT: &str = "你在为一个小镇生活模拟游戏创建一位新村民的初始设定。根据下面的一句话描述生成一个 JSON 对象。\
+只输出 JSON，不要解释，不要 Markdown 围栏。所有值用中文。字段：\n\
+{\"name\":\"姓名，2-4 个字，不能用这些已有姓名：TAKEN_NAMES\",\
+\"age\":\"年龄数字，成年人\",\"gender\":\"性别或称谓\",\
+\"intro\":\"一句话介绍，不超过 60 字\",\
+\"tags\":[\"2 到 4 个性格或兴趣标签，每个 2-4 字\"],\
+\"personality\":\"性格，1-2 句，写成行为倾向，不保证每次决定都符合\",\
+\"speech\":\"说话方式，1 句\",\
+\"background\":\"来小镇之前的自述背景，2-4 句；不写其他村民，不写已经在小镇发生过的事\",\
+\"drives\":\"长期驱动力，1 句\",\
+\"interests\":\"兴趣与生活偏好，1-2 句，可以提到PLACE_NAMES\",\
+\"occupation\":\"职业背景，几个字，可以为空；不会带来资源或职位\",\
+\"look\":LOOK_OPTIONS}\n\
+look 是这个人在小镇里的像素小人长相，照年龄、职业和气质挑，只能用给出的选项。普通人挑日常的衣服和发型；描述里是小丑、外星人、机器人、巫师、海盗、天使、恶魔、骑士，或孙悟空、猪八戒、哪吒、如来、唐僧这类神话人物，诸葛亮、关羽、张飞、曹操、吕布这类三国人物时，大胆用奇装、奇特发型、特别的肤色和头饰。\n";
+
 pub fn template_prompt(brief: &str, taken_names: &[String], places: &[String]) -> String {
+    template_prompt_with(
+        brief,
+        taken_names,
+        places,
+        &crate::tuning::Tuning::default(),
+    )
+}
+
+/// 同上，提示词照玩家在设定里调的来。
+pub fn template_prompt_with(
+    brief: &str,
+    taken_names: &[String],
+    places: &[String],
+    tuning: &crate::tuning::Tuning,
+) -> String {
     let taken = if taken_names.is_empty() {
         "（暂无）".to_string()
     } else {
@@ -205,22 +237,12 @@ pub fn template_prompt(brief: &str, taken_names: &[String], places: &[String]) -
         format!("小镇里的{}", places.join("、"))
     };
     format!(
-        "你在为一个小镇生活模拟游戏创建一位新村民的初始设定。根据下面的一句话描述生成一个 JSON 对象。\
-只输出 JSON，不要解释，不要 Markdown 围栏。所有值用中文。字段：\n\
-{{\"name\":\"姓名，2-4 个字，不能用这些已有姓名：{taken}\",\
-\"age\":\"年龄数字，成年人\",\"gender\":\"性别或称谓\",\
-\"intro\":\"一句话介绍，不超过 60 字\",\
-\"tags\":[\"2 到 4 个性格或兴趣标签，每个 2-4 字\"],\
-\"personality\":\"性格，1-2 句，写成行为倾向，不保证每次决定都符合\",\
-\"speech\":\"说话方式，1 句\",\
-\"background\":\"来小镇之前的自述背景，2-4 句；不写其他村民，不写已经在小镇发生过的事\",\
-\"drives\":\"长期驱动力，1 句\",\
-\"interests\":\"兴趣与生活偏好，1-2 句，可以提到{places}\",\
-\"occupation\":\"职业背景，几个字，可以为空；不会带来资源或职位\",\
-\"look\":{look}}}\n\
-look 是这个人在小镇里的像素小人长相，照年龄、职业和气质挑，只能用给出的选项。普通人挑日常的衣服和发型；描述里是小丑、外星人、机器人、巫师、海盗、天使、恶魔、骑士，或孙悟空、猪八戒、哪吒、如来、唐僧这类神话人物，诸葛亮、关羽、张飞、曹操、吕布这类三国人物时，大胆用奇装、奇特发型、特别的肤色和头饰。\n\
-描述：{brief}",
-        look = crate::looks::look_prompt()
+        "{}描述：{brief}",
+        tuning
+            .template(crate::tuning::Target::Character)
+            .replace("TAKEN_NAMES", &taken)
+            .replace("PLACE_NAMES", &places)
+            .replace("LOOK_OPTIONS", &crate::looks::look_prompt())
     )
 }
 

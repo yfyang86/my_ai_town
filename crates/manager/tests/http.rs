@@ -165,6 +165,13 @@ fn town_api_needs_session_and_static_files_stay_in_web_dir() {
         response.contains(r#"["swordholder","werewolf"]"#),
         "{response}"
     );
+    // 提示词调校：没存过时两处都是默认
+    let (status, response) = manager.get("/api/towns/prompts", &cookie);
+    assert_eq!(status, 200);
+    assert!(
+        response.contains(r#""story":{"mode":"default""#) && response.contains("CAST"),
+        "{response}"
+    );
     // 记录：只给要的种类；没开过的小镇每种都是空的
     let (status, response) = manager.get(
         "/api/towns/default-town/transcript?kinds=chat,trace",

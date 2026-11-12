@@ -33,6 +33,14 @@ fn run() -> Result<Value, HostError> {
             let body = request(&input)?;
             host::story::draft(&app, &body, body["mock"] == true)
         }
+        // 设定里的提示词调校：读、存、看拼好的模板、拿一句话试生成一个人物
+        "prompts" => host::prompts::read(&app),
+        "save-prompts" => host::prompts::write(&app, &request(&input)?),
+        "preview-prompt" => host::prompts::preview(&request(&input)?),
+        "try-character" => {
+            let body = request(&input)?;
+            host::prompts::try_character(&app, &body, body["mock"] == true)
+        }
         "models" => host::models::read(&app),
         "save-models" => host::models::write(&app, &request(&input)?),
         "test-model" => host::models::check(&app, &request(&input)?),

@@ -1,0 +1,388 @@
+/* 设定里的「提示词」（prompts/studio.ts）：一整页的对话框，和首页的设定页同一套浅色与圆角，只用 tokens。 */
+.prompt-studio {
+  width: min(1080px, calc(100vw - 32px));
+  height: min(860px, calc(100dvh - 32px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-l);
+  background: var(--surface-page);
+  color: var(--text);
+  box-shadow: var(--elev-3);
+  overflow: hidden;
+}
+.prompt-studio[open] {
+  display: flex;
+  flex-direction: column;
+}
+.prompt-studio::backdrop {
+  background: rgb(20 24 22 / 0.42);
+}
+.ps-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 6px 12px 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.ps-head h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.ps-head button.ps-back {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+.ps-back .game-icon {
+  width: 20px;
+  height: 20px;
+}
+.ps-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-s);
+  background: var(--accent-soft);
+}
+.ps-mark img {
+  image-rendering: pixelated;
+}
+.ps-tabs {
+  flex: none;
+  align-self: flex-start;
+  margin: 12px 20px 0;
+}
+.ps-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 20px 20px;
+  overscroll-behavior: contain;
+}
+.ps-card {
+  margin: 0 0 12px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--surface);
+}
+.ps-card h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.ps-card h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.ps-hint {
+  margin: 4px 0 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ps-card > .ui-seg + .ps-hint {
+  margin: 10px 0 0;
+}
+
+/* 风格预设：一排卡片，选中的描绿边 */
+.ps-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+}
+.ps-presets button.ps-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 56px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-s);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+.ps-presets button.ps-preset:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.ps-presets button.ps-preset[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.ps-preset b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.ps-preset small {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* 逐段：左边段名和提示，右边输入框 */
+.ps-field {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.ps-field-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ps-field-name b {
+  font-size: 13px;
+}
+.ps-field-name small {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ps-area {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ps-area textarea {
+  width: 100%;
+  min-height: 44px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ps-area textarea.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.ps-area small {
+  align-self: flex-end;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.ps-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 0 0 10px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.ps-marks code {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.ps-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ps-fold {
+  margin: 0 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--surface);
+}
+.ps-fold summary {
+  padding: 10px 16px;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ps-pre {
+  max-height: 360px;
+  margin: 0;
+  padding: 12px 16px;
+  overflow: auto;
+  border-top: 1px solid var(--line-soft);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 试一试 · 比一比 */
+.ps-row,
+.ps-versus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-top: 10px;
+}
+.ps-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.ps-versus .ps-pick {
+  flex: 1 1 200px;
+}
+.ps-pick select {
+  min-height: 34px;
+}
+.ps-check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 34px;
+  font-size: 13px;
+}
+.ps-vs {
+  align-self: flex-end;
+  padding: 0 2px 8px;
+  color: var(--text-3);
+  font-style: normal;
+  font-size: 12px;
+}
+.ps-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.ps-result {
+  padding: 0 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ps-result > header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 -16px 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: var(--r-m) var(--r-m) 0 0;
+  background: var(--surface-sunken);
+}
+.ps-result > header small {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.ps-result h4 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.ps-result h5 {
+  margin: 14px 0 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ps-premise {
+  margin: 0;
+  color: var(--text-2);
+}
+.ps-result ol,
+.ps-result ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ps-result li {
+  padding: 8px 10px;
+  border-radius: var(--r-s);
+  background: var(--surface-sunken);
+}
+.ps-result li > b,
+.ps-result li > span {
+  display: block;
+}
+.ps-result li > span {
+  color: var(--text-2);
+}
+.ps-line {
+  margin: 4px 0 0;
+}
+.ps-line b {
+  margin-right: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ps-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.ps-wait {
+  margin: 0;
+  color: var(--text-3);
+}
+.ps-error {
+  margin: 0;
+  color: var(--danger);
+}
+.ps-result button.ps-adopt {
+  margin-top: 14px;
+}
+
+.ps-foot {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.ps-status {
+  flex: 1;
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+@media (max-width: 719px) {
+  .prompt-studio {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+  .ps-head {
+    flex-wrap: wrap;
+  }
+  .ps-field,
+  .ps-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ps-body {
+    padding: 12px 12px 16px;
+  }
+  .ps-tabs {
+    margin: 10px 12px 0;
+  }
+}

@@ -115,6 +115,15 @@ impl Settings {
     }
 
     /// 文件不存在等于空配置；存在但损坏时报错，由启动流程退出。
+    /// 设定里调的提示词（和模型服务配置放在一起的 prompts.json）；没存过是默认
+    pub(crate) fn prompts(&self) -> agent::tuning::PromptSettings {
+        std::fs::read(std::path::Path::new(&self.providers_path).with_file_name("prompts.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<agent::tuning::PromptSettings>(&bytes).ok())
+            .unwrap_or_default()
+            .tidy()
+    }
+
     pub(crate) fn load(app: &Application) -> Result<Self, HostError> {
         Ok(Self {
             providers: config::load_providers(&app.providers_path)?,

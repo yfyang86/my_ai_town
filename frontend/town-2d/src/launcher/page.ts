@@ -1,3 +1,4 @@
+import '../promptOptions'
 import 'town-shared/style.css'
 import 'town-shared/shell/hud.css'
 import './style.css'

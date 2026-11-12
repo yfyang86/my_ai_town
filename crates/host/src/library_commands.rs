@@ -159,7 +159,9 @@ impl Runtime {
             .iter()
             .map(|p| p.name.clone())
             .collect();
-        let prompt = agent::completion::template_prompt(&brief, &taken, &places);
+        // 提示词照设定里调的来（每次现读：在首页改了，开着的小镇下一次生成就用上）
+        let tuning = self.settings.prompts().character;
+        let prompt = agent::completion::template_prompt_with(&brief, &taken, &places, &tuning);
         let clients = clients.clone();
         let id = request_id.clone();
         let submitted = self.tasks.submit(move || {
