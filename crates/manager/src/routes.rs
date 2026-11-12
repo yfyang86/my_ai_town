@@ -133,6 +133,25 @@ fn api(app: &App, req: &Request, rest: &str, get: bool) -> Result<Response, ApiE
             return Err(ApiError::bad("请更新应用：建镇预览在页面里生成"));
         }
         // 首页「设定」的模型服务：读、存、连通测试。逻辑在 host::models，电脑版经 town-map 调同一份
+        // 设定里的提示词调校（host::prompts，电脑版经 town-map 调同一份）
+        (true, "/prompts") => {
+            return ok(host::prompts::read(&crate::creation::load_app(
+                &app.config,
+            )?)?)
+        }
+        (false, "/prompts") => {
+            let config = crate::creation::load_app(&app.config)?;
+            return ok(host::prompts::write(&config, &body(req)?)?);
+        }
+        (false, "/prompts/preview") => return ok(host::prompts::preview(&body(req)?)?),
+        (false, "/prompts/character") => {
+            let config = crate::creation::load_app(&app.config)?;
+            return ok(host::prompts::try_character(
+                &config,
+                &body(req)?,
+                app.hosts.mock_llm,
+            )?);
+        }
         (true, "/models") => {
             return ok(host::models::read(&crate::creation::load_app(
                 &app.config,

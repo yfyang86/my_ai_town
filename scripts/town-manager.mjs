@@ -1,6 +1,7 @@
 import { createAssetRoutes } from './towns/asset-routes.mjs'
 import { createCreation } from './towns/creation.mjs'
 import { createModelRoutes } from './towns/models.mjs'
+import { createPromptRoutes } from './towns/prompts.mjs'
 import { createBuiltinModelRoutes } from './towns/builtin-model.mjs'
 import { createTownRoutes } from './towns/town-routes.mjs'
 import { Raw, HttpError, readBody, describe } from './towns/http.mjs'
@@ -82,6 +83,7 @@ export async function createManager({
   const builtinModel = createBuiltinModelRoutes({ source, config })
   const routes = [
     ...createModelRoutes({ source, config, serial }),
+    ...createPromptRoutes({ source, config, serial, mockLlm }),
     ...builtinModel.routes,
     ...creation.routes,
     ...assets.routes,
