@@ -1,4 +1,4 @@
-//! 应用的命令分派与单拍顺序。保持命令 → 推进 → 模型结果 → roster 的原有时序。
+//! 应用的命令分派与单拍顺序。保持命令 → 推进 → 模型结果 → roster → 角色卡细节的时序。
 //! 客户端命令不能让进程退出：存盘失败只回错误回执并写日志，内存状态保留，下次检查点重试。
 use crate::{
     join::JoinRequest,
@@ -43,6 +43,8 @@ pub(crate) struct Runtime {
     pub transcript: host::transcript::Transcript,
     /// 开新一卷录像要的小镇目录与地图；世界不存档时为空
     pub reels: Option<crate::recording_commands::ReelSource>,
+    /// 各连接在看哪位村民的角色卡细节（见 resident_detail.rs）
+    pub watchers: crate::resident_detail::Watchers,
 }
 
 /// 一条消息发给谁。
@@ -220,6 +222,7 @@ impl Runtime {
             | ClientMsg::RestartBuiltinModel { .. }
             | ClientMsg::TestModelConnection { .. }
             | ClientMsg::GetAgentConfig { .. }
+            | ClientMsg::WatchResident { .. }
             | ClientMsg::SetPersona { .. }
             | ClientMsg::ResetWorld { .. }
             | ClientMsg::GetPopulation
@@ -429,6 +432,7 @@ impl Runtime {
                 clients,
             ),
             GetAgentConfig { resident } => self.agent_config(resident.as_deref()),
+            WatchResident { resident } => self.watch_resident(connection, resident),
             SetPersona {
                 request_id,
                 resident,
@@ -527,7 +531,8 @@ impl Runtime {
             .and_all(self.world_settings_msg())
     }
 
-    /// 一拍：推进世界、收模型结果、发新请求、广播 roster。存盘或轨迹写入失败只写日志，不中断运行。
+    /// 一拍：推进世界、收模型结果、发新请求、广播 roster，再给在看角色卡的连接补发变了的细节。
+    /// 存盘或轨迹写入失败只写日志，不中断运行。
     pub(crate) fn tick(&mut self, clients: &Clients) {
         self.avatar_tick(clients);
         let content_before = self.world.contents().revision();
@@ -583,6 +588,7 @@ impl Runtime {
             broadcast(clients, &self.props_message());
         }
         broadcast(clients, &self.roster());
+        self.publish_details(clients);
         self.avatar_publish(clients);
         self.report_tape(clients);
     }
@@ -769,6 +775,7 @@ fn world_id_of(msg: &ClientMsg) -> Option<&str> {
         | ClientMsg::RestartBuiltinModel { .. }
         | ClientMsg::TestModelConnection { .. }
         | ClientMsg::GetAgentConfig { .. }
+        | ClientMsg::WatchResident { .. }
         | ClientMsg::SetPersona { .. }
         | ClientMsg::ResetWorld { .. }
         | ClientMsg::GetPopulation
@@ -824,6 +831,7 @@ fn requires_ready(msg: &ClientMsg) -> bool {
         | ClientMsg::RestartBuiltinModel { .. }
         | ClientMsg::TestModelConnection { .. }
         | ClientMsg::GetAgentConfig { .. }
+        | ClientMsg::WatchResident { .. }
         | ClientMsg::SetPersona { .. }
         | ClientMsg::ResetWorld { .. }
         | ClientMsg::GetPopulation

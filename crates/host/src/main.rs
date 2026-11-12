@@ -16,6 +16,7 @@ mod library_commands;
 mod network;
 mod prop_commands;
 mod recording_commands;
+mod resident_detail;
 mod resident_driver;
 mod runtime;
 mod settings;
@@ -253,6 +254,7 @@ fn build_runtime(
         tape: Default::default(),
         transcript,
         reels,
+        watchers: Default::default(),
     })
 }
 
