@@ -1,4 +1,5 @@
 import type { SwordholderRole } from 'town-shared/protocol'
+import { artImage, gameModeArt } from './art'
 import { iconImage, type PixelIcon } from './pixelIcons'
 
 // 执剑人之夜界面的像素图标：画法见 pixelIcons.ts。身份各一个（剑、讲台、三个太阳、票箱），
@@ -188,7 +189,9 @@ export const ROLE_ICON: Record<SwordholderRole, SwordholderIcon> = {
   voter: 'ballot',
 }
 
-/** 按 scale 倍显示的像素图标（18 × scale 像素见方） */
+/** 按 scale 倍显示的像素图标（18 × scale 像素见方）；有生成的素材块（assets/gameModes/swordholder/）就用生成的 */
 export function swordholderIcon(name: SwordholderIcon, scale = 1) {
+  const art = gameModeArt('swordholder', name)
+  if (art) return artImage(art, scale, 'sh-px')
   return iconImage(`swordholder:${name}`, ICONS[name], scale, 'sh-px')
 }

@@ -103,6 +103,14 @@ Limits (refused at open with a reason): 2–12 seats, 1–24 beats in time order
 
 The first script is hand-written: `frontend/town-shared/src/prefabs/lighthouse.ts` (灯塔之约).
 
+## Generated art
+
+A mode's HUD icons and banners can come from generated pixel tiles instead of the icons drawn in code: `frontend/town-2d/src/assets/gameModes/<mode>/<name>.png`, looked up by `gameModeArt` (`frontend/town-2d/src/map/hd2d/gameModes/art.ts`). A tile that is missing falls back to the code-drawn icon in `pixelIcons.ts`, so a mode without assets is unchanged.
+
+Resources switch with the settings chosen at open: a second directory level is the settings pack — for storyline the script's title (`assets/gameModes/storyline/灯塔之约/banner.png`); a tile the pack lacks falls back to the mode's own. Packs so far: `tide/` (the five news kinds), `werewolf/` (roles, fire, ballot, moon, sun), `swordholder/` (roles, bell, drop, antenna, switch, suns), `storyline/` (default banner) and `storyline/灯塔之约/`.
+
+Tiles were generated with `mmx image generate` (flat pixel-art style on a solid magenta ground), then keyed, trimmed, scaled to a 16-cell grid and palette-limited with ImageMagick (icons 18×18 with a 1-cell margin; banners 192×80 full-bleed). The whole pipeline — prompts, raw images, recipes — lives in `resource-generation/` (see `resource-generation/Artifact-AGI-Tool.md`); rerun `generate.sh` then `process.sh` to add or replace art.
+
 ## Adding a mode — checklist
 
 1. `crates/kernel/src/game_mode/<mode>.rs` implementing `Rules`; add to `GameMode`, `each!`, `World::set_game_mode`.

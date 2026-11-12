@@ -1,4 +1,5 @@
 import type { WerewolfRole } from 'town-shared/protocol'
+import { artImage, gameModeArt } from './art'
 import { iconImage, type PixelIcon } from './pixelIcons'
 
 // 狼人杀界面的像素图标：画法见 pixelIcons.ts。
@@ -197,7 +198,9 @@ const ICONS = {
 
 export type WerewolfIcon = keyof typeof ICONS | WerewolfRole
 
-/** 按 scale 倍显示的像素图标（18 × scale 像素见方） */
+/** 按 scale 倍显示的像素图标（18 × scale 像素见方）；有生成的素材块（assets/gameModes/werewolf/）就用生成的 */
 export function pixelIcon(key: WerewolfIcon, scale = 2) {
+  const art = gameModeArt('werewolf', key)
+  if (art) return artImage(art, scale, 'ww-px')
   return iconImage(`ww:${key}`, ICONS[key] as PixelIcon, scale, 'ww-px')
 }
