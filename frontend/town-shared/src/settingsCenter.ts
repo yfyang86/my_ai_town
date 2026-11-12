@@ -13,6 +13,7 @@ import { createSoundPage } from './settings/sound'
 import { createDisplayPage } from './settings/display'
 import { createLimitsPage } from './settings/limits'
 import { createPromptsPage } from './settings/prompts'
+import { createTracePage } from './settings/trace'
 import { createSettingsNav } from './settings/nav'
 import { $ } from './dom'
 import { isCompact } from './platform'
@@ -102,6 +103,7 @@ export function initSettingsCenter(deps: CenterDeps) {
     createPromptsPage(),
     createSoundPage(deps.game, deps.audio),
     createDisplayPage(deps.map, deps.game),
+    createTracePage(pageDeps),
   ]
   const inGroup = (group: SettingsPage['group']) => pages.filter((p) => p.group === group)
   nav = createSettingsNav(
