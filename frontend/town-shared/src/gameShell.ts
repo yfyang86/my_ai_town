@@ -177,6 +177,12 @@ export function startGameShell(
     }
     return true
   })
+  // 开局做到一半页面刷新了：世界观已经写好，上面那条路不会再走。玩法还没打开、又记着这个世界的进度，就接着开局设置
+  panels.worldSettings.subscribe(() => {
+    const world = panels.worldSettings.state()
+    if (prefab && !guideOpened && world?.ready && !world.game_mode)
+      guideOpened = prefabSetup.resume(prefab)
+  })
   const resetTips = () => {
     tips.reset()
     tips.start()
