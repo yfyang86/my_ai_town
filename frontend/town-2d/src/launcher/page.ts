@@ -12,7 +12,7 @@ import { createMapRenderer } from '../mapRenderers'
 import { gameUrl, listMaps, openMap } from './catalog'
 import { initCreator } from './creator'
 import { PREFABS, type Prefab } from 'town-shared/prefabs/index'
-import { generatePrefab, isBuiltinTown, missingPrefabs, prefabTownId } from './prefabEntry'
+import { generatePrefab, isBuiltinTown, prefabRow, prefabTownId } from './prefabEntry'
 import { api } from './api'
 import { initStoryEditor } from './storyEditor'
 import { warmSelectedGame } from '../startupWarmup'
@@ -553,6 +553,9 @@ function mapOption(map: MapEntry) {
   return b
 }
 
+/** 中文名按拼音排（和以前 Node 版管理服务的顺序一样） */
+const byPinyin = new Intl.Collator('zh-Hans-CN')
+
 function mapGroup(name: string, cards: HTMLElement[]) {
   const group = document.createElement('div'),
     label = document.createElement('span'),
@@ -660,19 +663,24 @@ async function buildPrefab(prefab: Prefab) {
 /** 画小镇列表：返回列出来的小镇（关掉的剧本不在里面） */
 function drawList() {
   const shown = maps.filter((m) => !m.id.startsWith('prefab-') || prefabShown(m.id))
-  // 三组：随应用带的地图、选了就玩某个玩法的剧本（还没生成的也排在这里，选中时才生成）、玩家自己建的
+  // 三组：随应用带的地图、选了就玩某个玩法的剧本（还没生成的也排在这里，选中时才生成）、玩家自己建的。
+  // 管理服务按名字的编码排；剧本按登记的顺序，自己建的按拼音，都在这里排
   const groups: [string, HTMLElement[]][] = [
     ['内置地图', maps.filter((m) => m.origin === 'builtin').map(mapOption)],
     [
       '剧本',
-      [
-        ...shown.filter((m) => m.id.startsWith('prefab-')).map(mapOption),
-        ...missingPrefabs(maps)
-          .filter((p) => prefabShown(p.id))
-          .map(prefabOption),
-      ],
+      // 按登记的顺序排，开过的和还没生成的混在一起；玩家关掉不显示的不列
+      prefabRow(maps)
+        .filter((item) => prefabShown(item.id))
+        .map((item) => ('spec' in item ? prefabOption(item) : mapOption(item))),
     ],
-    ['我建的', maps.filter((m) => !isBuiltinTown(m)).map(mapOption)],
+    [
+      '我建的',
+      maps
+        .filter((m) => !isBuiltinTown(m))
+        .sort((a, b) => byPinyin.compare(a.name, b.name))
+        .map(mapOption),
+    ],
   ]
   // 「剧本」一组全关掉了也留着组名，好把它们再打开
   $('map-list').replaceChildren(
