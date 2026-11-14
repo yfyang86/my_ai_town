@@ -15,6 +15,11 @@ const CHECKS_MAX: usize = 8;
 const ENCOUNTERS_MAX: usize = 2;
 const FOES_MAX: usize = 6;
 const SPELLS_MAX: usize = 6;
+/// 一场遭遇战里对手的分量（打赢给的经验）加起来，最多是卷进来的人每人每级这么多。
+/// 内核里装备齐整、每回合都出手的四个一级角色对四个强盗加一个打手（200，每人 50）能赢六七成；
+/// 可模型排出来的角色多半不是打手（空手的游荡者、拿匕首的战士、没穿甲的牧师），真模型还会误了回合：
+/// 四个这样的人对两个强盗加一个打手（150）实跑是全倒。所以定得低。
+const THREAT_PER_LEVEL: u32 = 25;
 
 /// 模型没说哪项属性要紧时，各职业按这个先后分那六个数
 fn priority(class: &str) -> [&'static str; 6] {
@@ -301,6 +306,66 @@ fn encounter(
     Some(one)
 }
 
+/// 遭遇战对卷进来的人太重就减：从最重的对手减起，减到分量不超过这些人担得起的；只剩一个还太重，
+/// 换成担得起的里面最重的那种（名字照旧）。模型排的架常常是两个一级角色对两个打手，上去就倒。
+/// 返回减了什么的一句说明。
+fn fit(one: &mut Value, sheets: &[Value], words: &RulesetWords) -> Option<String> {
+    let weight = |creature: &Value| {
+        words
+            .threat
+            .iter()
+            .find(|(id, _)| creature == id)
+            .map_or(0, |(_, xp)| *xp)
+    };
+    let level = |seat: usize| number(&sheets[seat]["level"]).unwrap_or(1) as u32;
+    let party: Vec<usize> = match one["party"].as_array() {
+        Some(list) => list
+            .iter()
+            .filter_map(number)
+            .map(|s| s as usize - 1)
+            .filter(|s| *s < sheets.len())
+            .collect(),
+        None => (0..sheets.len()).collect(),
+    };
+    let budget: u32 = party.iter().map(|&s| level(s) * THREAT_PER_LEVEL).sum();
+    let title = clip(&one["title"], 40);
+    let foes = one["foes"].as_array_mut()?;
+    let total = |foes: &[Value]| foes.iter().map(|f| weight(&f["creature"])).sum::<u32>();
+    let before = (foes.len(), total(foes));
+    if before.1 <= budget {
+        return None;
+    }
+    while foes.len() > 1 && total(foes) > budget {
+        let heaviest = (0..foes.len()).max_by_key(|&k| (weight(&foes[k]["creature"]), k))?;
+        foes.remove(heaviest);
+    }
+    let mut swapped = None;
+    if total(foes) > budget {
+        let lighter = words
+            .threat
+            .iter()
+            .filter(|(_, xp)| *xp <= budget)
+            .max_by_key(|(_, xp)| *xp)
+            .or_else(|| words.threat.iter().min_by_key(|(_, xp)| *xp))?;
+        foes[0]["creature"] = json!(lighter.0);
+        swapped = words
+            .creatures
+            .iter()
+            .find(|(id, _)| *id == lighter.0)
+            .map(|(_, name)| name.clone());
+    }
+    let dropped = match before.0 - foes.len() {
+        0 => String::new(),
+        n => format!("去掉了 {n} 个对手"),
+    };
+    Some(format!(
+        "遭遇战「{title}」对卷进来的 {} 个人太凶险（对手的分量 {}，他们担得起 {budget}）：{dropped}{}",
+        party.len(),
+        before.1,
+        swapped.map_or(String::new(), |name| format!("，剩下的换成了{name}")),
+    ))
+}
+
 /// 草稿理好了平常的那一半之后：开着规则就把角色卡、检定、遭遇战理好挂上去，没开就都拿掉。
 /// 节拍上的 checks、encounter 和里程碑的 check、encounter 进来时还是模型的原样。
 pub(super) fn settle(draft: &mut Value, raw: &Value, on: bool) -> Result<(), String> {
@@ -395,12 +460,15 @@ pub(super) fn settle(draft: &mut Value, raw: &Value, on: bool) -> Result<(), Str
                 notes.push(format!("遭遇战太多，节拍「{title}」上的那场去掉了"));
                 continue;
             }
-            let Some(one) = encounter(raw_fight, people, &words, &mut used) else {
+            let Some(mut one) = encounter(raw_fight, people, &words, &mut used) else {
                 notes.push(format!(
                     "节拍「{title}」上的遭遇战没有规则里有的对手，去掉了"
                 ));
                 continue;
             };
+            if let Some(note) = fit(&mut one, &sheets, &words) {
+                notes.push(note);
+            }
             let mut probe = base.clone();
             let sound = serde_json::from_value::<StorylineEncounter>(one.clone())
                 .map_err(|e| e.to_string())
@@ -502,11 +570,17 @@ pub(super) fn prompt() -> String {
   - dc 用 10（容易）、13（中等）、15（偏难）、18（难）；seats 是能试的座号，不写表示谁都能试；ways 写一到三种办法，skill 可以不写。
 三、最多一两个节拍可以带 "encounter"：一场按回合打的架，故事里真要动手时才写。
   {{"id": "英文小写编号", "title": "这场架的名字", "zones": ["两到四块相邻的地方的名字"], "party": [1, 2], "party_zone": 0, "foes": [{{"creature": "生物编号", "name": "在故事里叫什么", "zone": 1}}]}}
-  - creature 只能从这里挑：{creatures}。对手不要多：一级的角色两三个人对两三个弱的对手就够凶险了，打输了会死人。
+  - creature 只能从这里挑：{creatures}。对手不要多，打输了会死人：每种对手有分量（{threat}），一场架里对手的分量加起来不要超过卷进来的人数乘 25，超了会被减掉。
 milestones 的 when 另有两种：{{"kind": "check", "check": "检定编号"}} 有人通过了这项检定；{{"kind": "encounter", "encounter": "遭遇战编号"}} 这场架打赢了。
 "#,
         weapons = pairs(&words.weapons),
         armor = pairs(&words.armor),
         creatures = pairs(&words.creatures),
+        threat = words
+            .threat
+            .iter()
+            .map(|(id, xp)| format!("{id} {xp}"))
+            .collect::<Vec<_>>()
+            .join("、"),
     )
 }
