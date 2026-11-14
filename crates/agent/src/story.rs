@@ -700,6 +700,7 @@ mod tests {
         );
     }
 
+    /// 遭遇战对卷进来的人太重的，从最重的对手减起。
     /// 开着第五版规则的草稿：角色卡照规则理（认不得的职业当战士、属性换成标准的六个数、别的职业的法术去掉、
     /// 没写的给默认的）；检定和遭遇战一项一项让内核查，认不得的生物、没写清楚的检定只去掉那一项并留一句说明；
     /// 指着去掉了的那一项的里程碑跟着去掉。理过的草稿再理一遍不变。不开规则时这些都不带。
@@ -720,7 +721,8 @@ mod tests {
         ]);
         raw["beats"][0]["encounter"] = json!({
             "id": "rats", "title": "地窖里的老鼠", "zones": ["地窖口", "地窖里"], "party": [1, 2],
-            "foes": [{"creature": "giant_rat", "name": "大老鼠", "zone": 1}, {"creature": "dragon", "zone": 1}],
+            "foes": [{"creature": "giant_rat", "name": "大老鼠", "zone": 1}, {"creature": "dragon", "zone": 1},
+                     {"creature": "thug", "zone": 1}, {"creature": "thug", "zone": 1}],
         });
         raw["beats"][1]["encounter"] =
             json!({"id": "boss", "title": "龙", "foes": [{"creature": "dragon"}]});
@@ -792,6 +794,7 @@ mod tests {
             "没有「bard」这个职业",
             "没写清楚试什么",
             "没有规则里有的对手",
+            "太凶险（对手的分量 225，他们担得起 50）：去掉了 2 个对手",
             "里程碑「里程碑 m2」",
             "里程碑「里程碑 m4」",
         ] {

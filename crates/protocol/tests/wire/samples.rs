@@ -49,6 +49,16 @@ fn agent_view() -> ResidentAgentView {
             until: 490.0,
             event: Some(FactKind::Presence),
         }),
+        latest_goal: Some(GoalMark {
+            id: "read".into(),
+            updated_at: 431.0,
+        }),
+        declined_invitation: Some("i0".into()),
+    }
+}
+
+fn detail_view() -> ResidentDetailView {
+    ResidentDetailView {
         goals: vec![ResidentGoalView {
             id: "read".into(),
             title: "去图书馆读书".into(),
@@ -112,13 +122,6 @@ fn agent_view() -> ResidentAgentView {
             insights: 1,
             let_go: 2,
         }],
-        daily_calls: 3,
-        daily_limit: 120,
-        daily_tokens: 12_000,
-        daily_input_tokens: 10_000,
-        daily_cache_hit_tokens: 4_000,
-        replies: 3,
-        stale_replies: 1,
     }
 }
 
@@ -688,6 +691,7 @@ pub fn server_samples() -> Vec<ServerMsg> {
                 name: "服务商".into(),
                 base_url: "https://example.invalid/v1".into(),
                 key_mask: "sk-a…7890".into(),
+                model: "m1".into(),
             }],
             builtin_stale: true,
         },
@@ -718,6 +722,10 @@ pub fn server_samples() -> Vec<ServerMsg> {
             request_id: "req-1".into(),
             ok: true,
             message: "已设当前值".into(),
+        },
+        ServerMsg::ResidentDetail {
+            resident_id: "resident_ashu".into(),
+            detail: Some(detail_view()),
         },
         ServerMsg::Error {
             request_id: Some("op1".into()),
@@ -853,6 +861,16 @@ pub fn server_samples() -> Vec<ServerMsg> {
                 lifetime_calls: 30,
                 lifetime_tokens: 120_000,
                 residents: vec![usage_row()],
+            },
+        },
+        ServerMsg::AgentTrace {
+            state: AgentTraceView {
+                bytes: 41_000_000,
+                dir: "/data/towns/t1/logs".into(),
+                file_bytes: 32 << 20,
+                files: 3,
+                full_prompts: false,
+                keep_bytes: 256 << 20,
             },
         },
         ServerMsg::Population {
@@ -1924,6 +1942,7 @@ pub fn client_samples() -> Vec<ClientMsg> {
         id: "p1".into(),
         name: "服务商".into(),
         base_url: "https://example.invalid/v1".into(),
+        model: "m1".into(),
     };
     vec![
         ClientMsg::Avatar {
@@ -2097,6 +2116,9 @@ pub fn client_samples() -> Vec<ClientMsg> {
         ClientMsg::GetAgentConfig {
             resident: Some("resident_ashu".into()),
         },
+        ClientMsg::WatchResident {
+            resident: Some("resident_ashu".into()),
+        },
         ClientMsg::SetPersona {
             request_id: "req-1".into(),
             resident: "resident_ashu".into(),
@@ -2228,6 +2250,11 @@ pub fn client_samples() -> Vec<ClientMsg> {
         ClientMsg::SetAgentLimits {
             request_id: "req-1".into(),
             limits: limits(),
+        },
+        ClientMsg::GetAgentTrace,
+        ClientMsg::SetAgentTrace {
+            request_id: "req-1".into(),
+            full_prompts: true,
         },
     ]
 }

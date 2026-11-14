@@ -86,16 +86,16 @@ pub use props::{
 pub use recording::ReelView;
 pub use resident::{
     ActionResultView, AgentLimitRanges, AgentLimits, AgentState, AgentUsage, AgentWaitView,
-    EvidenceSource, GoalStatus, HoldCause, LimitRange, MemoryKind, MemoryStatus, PauseKind,
-    RequestKind, RequestStatus, RequestView, ResidentAgentView, ResidentDreamView,
-    ResidentGoalView, ResidentInteractionView, ResidentMemoryView, ResidentUsage, UsageSummary,
-    WorldHold,
+    EvidenceSource, GoalMark, GoalStatus, HoldCause, LimitRange, MemoryKind, MemoryStatus,
+    PauseKind, RequestKind, RequestStatus, RequestView, ResidentAgentView, ResidentDetailView,
+    ResidentDreamView, ResidentGoalView, ResidentInteractionView, ResidentMemoryView,
+    ResidentUsage, UsageSummary, WorldHold,
 };
 pub use roster::{
     ActivityKind, MemberKind, MovementPhase, MovementView, PlanView, RosterLocale, RosterMember,
     VerbKind,
 };
-pub use server_msg::{ServerMsg, WorldSettingsView};
+pub use server_msg::{AgentTraceView, ServerMsg, WorldSettingsView};
 pub use spatial::{PlaceGrid, Point3, PropPosition, Route, SpatialOverride, SpatialOverridesView};
 
 /// 把值当作 `serde_json::Value` 输出：对象的键按字母序排列。

@@ -6,18 +6,16 @@
 browser ──HTTP /api/towns──▶ manager ──spawn──▶ host (one per running town)
    │                           │                  ├─ kernel::World
    └──────── WebSocket ────────┼─────────────────▶├─ agent::ResidentRuntime
-                               │                  ├─ model HTTP calls (thread pool)
-                               └─ town-map (one-shot worker: validate, parse, models)
+                               │                  └─ model HTTP calls (thread pool)
 ```
 
 | Process | Binary | Port | Job |
 | --- | --- | --- | --- |
-| Manager (desktop) | `node scripts/start-client.mjs` → `scripts/town-manager.mjs` | 8788 (dev) / 5174 (preview, also serves `dist`) | Lists, creates, opens, closes towns; owns the data root |
-| Manager (apps) | `town-manager` from `crates/manager` | chosen by the shell | Same interface, in Rust, with a session cookie |
+| Manager | `town-manager` from `crates/manager`; on the desktop `node scripts/start-client.mjs` starts it | 8788 (dev) / 5174 (preview, also serves `dist`); chosen by the shell in the apps | Lists, creates, opens, closes towns; owns the data root; links `host` and `agent` for model calls and validation |
 | Host | `host` from `crates/host` | random, reported in `host-ready.json` | Runs one town |
-| Worker | `town-map` from `crates/host/src/bin/town-map.rs` | — | JSON in on stdin, JSON out: map validation, description parsing (model call), model settings |
+| Map check | `town-map` from `crates/host/src/bin/town-map.rs` | — | Validates one map document from stdin; used by the map design scripts |
 
-The managers bind to loopback only. The Node manager shells out to `town-map` for anything that needs Rust logic or a model call; the Rust manager links `host` and `agent` and calls the same functions in-process.
+The manager binds to loopback only.
 
 ## Opening a town
 

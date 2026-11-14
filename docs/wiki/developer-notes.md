@@ -15,7 +15,7 @@ On top of the free-running town sit **game modes** — self-contained rule sets 
 | `crates/agent` | Resident runtime: observation → prompt → tool calls; memory and notebook. No network either |
 | `crates/host` | One process per running town: wires kernel + agent, talks to the model, serves the WebSocket, saves, records |
 | `crates/manager` | Rust manager used by the Android / macOS / Windows shells |
-| `scripts/` | Node manager for desktop (`town-manager.mjs`, `towns/`), map generator (`mapgen/`), built-in map scripts (`maps/`), replay, packaging |
+| `scripts/` | `start-client.mjs` (starts the Rust manager and Vite for dev / preview), map generator (`mapgen/`), built-in map scripts (`maps/`), replay, packaging |
 | `frontend/town-shared` | Shared client code: protocol mirror, shell, panels, prefabs, audio |
 | `frontend/town-2d` | Vite app: town selection page (`index.html`) and the game (`game.html`), HD-2D renderer |
 | `config/` | Application config, provider list, built-in villager library, rule tables |
@@ -26,7 +26,7 @@ On top of the free-running town sit **game modes** — self-contained rule sets 
 
 ```sh
 corepack pnpm install --frozen-lockfile
-cargo build --locked -p host --bins      # host + town-map; the Node manager spawns both
+cargo build --locked -p host -p manager --bins   # host, town-map and town-manager; start-client and the tests spawn them
 corepack pnpm build
 corepack pnpm preview                    # http://127.0.0.1:5174
 corepack pnpm dev                        # Vite on 5174, manager on 8788
@@ -45,7 +45,7 @@ corepack pnpm test
 corepack pnpm format:check
 ```
 
-Order matters: `pnpm test` reads protocol samples that `cargo test` writes, spawns `target/debug/host` and `town-map`, and reads `frontend/town-2d/dist`.
+Order matters: `pnpm test` reads protocol samples that `cargo test` writes, spawns `target/debug/town-manager` and `host`, and reads `frontend/town-2d/dist`.
 
 Useful switches: `TOWN_MOCK_LLM=1` (honoured by `pnpm dev` / `pnpm preview` and the standalone manager) runs residents and the story editor on a scripted fake model; `AI_TOWN_HOME` moves the user data root; `TOWN_MANAGER_PORT` moves the manager.
 
@@ -54,7 +54,7 @@ Useful switches: `TOWN_MOCK_LLM=1` (honoured by `pnpm dev` / `pnpm preview` and 
 - **Source, tests and data are the truth.** Docs are limited to `README.md`, `docs/README.md`, `AGENTS.md`, `docs/wiki/` and `Sprints/`. Implementation notes go in source comments.
 - **Tests guard key behaviour and data safety through the full call path.** One rule is tested at one layer. No tests for small implementation details, UI arrangement, or parameter sweeps.
 - **A game mode never leaks into the core.** It lives in four directories plus registrations (see [Game modes](game-modes.md)). With no mode open, saves, wire messages and model prompts must be byte-for-byte what they were before the mode existed.
-- **Two managers, one interface.** Anything added under `/api/towns` exists in both `scripts/towns/` and `crates/manager/` with the same shape.
+- **One manager.** `/api/towns` lives only in `crates/manager`; logic that the world process also needs (models, story drafting, prompt tuning, the town log) sits in `host` and is called in-process.
 - **One frontend.** Phone/desktop differences branch only on `data-layout`, `data-input`, `data-shell`.
 - **User data is the user's.** `towns/<id>/` is never migrated into the repo, never deleted without an explicit instruction.
 - Comments, UI strings, commit messages and prompts are Chinese. There is no i18n layer.

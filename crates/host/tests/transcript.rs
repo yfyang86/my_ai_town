@@ -1,4 +1,4 @@
-//! 记录：世界跑一段，小镇目录的 transcript/ 里就有世界日志、想法和村民 Agent 的轨迹，
+//! 记录：世界跑一段，小镇目录的 transcript/ 里就有世界日志和想法，轨迹日志里有村民 Agent 的轨迹，
 //! 每行带种类、现实时间、世界编号和世界里的分钟；管理服务下载时读的就是这几份原文。
 //! 重置世界后新的行记在新的世界编号下。
 use crate::support::*;
@@ -59,7 +59,22 @@ fn a_running_world_writes_down_events_thoughts_and_agent_traces() {
         assert!(line["at"].is_u64() && line["minutes"].is_number() && line["clock"].is_string());
     }
     // 轨迹里有发给模型的请求和回复；想法是名册上新出现的那一条
-    let traces = lines(&town, "trace");
+    // 轨迹读的是世界进程的轨迹日志（管理服务把它放在小镇目录的 logs/ 里；这里的夹具放在工作目录的 logs/）
+    let traces: Vec<Value> = host::agent_trace::recent(&town.dir.join("logs"), u64::MAX)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert!(
+        lines(&town, "trace").is_empty(),
+        "小镇目录里没有 logs/ 时轨迹是空的"
+    );
+    // 有上限时只给末尾的整行
+    let tail = host::agent_trace::recent(&town.dir.join("logs"), 600).unwrap();
+    assert!(tail.len() <= 600);
+    assert!(tail
+        .lines()
+        .all(|l| serde_json::from_str::<Value>(l).is_ok()));
     let kinds = |event: &str| {
         traces
             .iter()
