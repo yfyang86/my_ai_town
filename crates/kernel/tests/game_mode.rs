@@ -983,6 +983,9 @@ fn storyline_fires_beats_runs_a_scene_tracks_milestones_and_ends() {
         .expect("收场写进了世界日志");
     assert!(closing.contains("没有达成：灯塔留下") && closing.contains("雾散了"));
     assert!(!closing.contains("镇长认账"));
+    // 收场前一个钟头提醒过一遍：还握着没宣布的那一项的 1 号被单独告知，宣布过的 2 号和没有这种事的 3 号没有
+    assert!(told(&w, "r1", "只有你能宣布") && told(&w, "r1", "灯塔留下"));
+    assert!(!told(&w, "r2", "只有你能宣布") && !told(&w, "r3", "只有你能宣布"));
     assert!(w.game_mode_tool("r1").is_none());
     assert_eq!(w.game_mode_tempo(), 1.0);
     w.set_game_mode(None).unwrap();

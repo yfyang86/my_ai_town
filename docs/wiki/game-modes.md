@@ -106,6 +106,8 @@ It is deliberately soft. Nobody is moved; a beat says what happens and a residen
 
 `mode_action`: `speak` / `pass` on your scene turn, `declare` with `target` = milestone id.
 
+**Reminders to declare.** A `declare` milestone only counts if its owner declares it, and models often do the thing and never declare. Two private nudges, both in `storyline.rs`: once the last beat has run and less than two game hours remain, every character who still holds an undeclared milestone is told which ones and woken (`remind_to_declare`); and after a passed check or a narrator ruling that went their way, a character with undeclared milestones gets a one-line hint (`declare_hint`). Neither declares anything; the character still decides.
+
 Limits (refused at open with a reason): 2–12 seats, 1–24 beats in time order, ≤ 12 milestones, ids unique and resolvable, 14 days at most, text lengths capped.
 
 The first script is hand-written: `frontend/town-shared/src/prefabs/lighthouse.ts` (灯塔之约).
