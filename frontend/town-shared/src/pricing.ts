@@ -14,7 +14,7 @@ export interface Price {
 const PRICES: Record<string, { match: string; price: Price }[]> = {
   // 内置模型在这台设备上跑，不花钱
   builtin: [{ match: '', price: { hit: 0, miss: 0, out: 0 } }],
-  // api-docs.deepseek.com/zh-cn/quick_start/pricing，2026-10-05：flash 与旧名 deepseek-chat 同价；v4-pro 另算
+  // api-docs.deepseek.com/quick_start/pricing，2026-11-14：flash 与 v4-pro 分开计价
   deepseek: [
     { match: 'pro', price: { hit: 0.3, miss: 9, out: 27 } },
     { match: '', price: { hit: 0.04, miss: 2, out: 8 } },

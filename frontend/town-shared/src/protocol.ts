@@ -296,8 +296,10 @@ export interface ProviderView {
   name: string
   base_url: string
   key_mask: string
-  /** 「模型服务」里给这个服务填的模型名，选这个服务时自动填上；没填过为空串 */
+  /** 「模型服务」里给这个服务填的默认模型名，选这个服务时自动填上；没填过为空串 */
   model: string
+  /** 玩家另外添加的模型候选；旧服务端没有回传时按空表处理 */
+  models?: string[]
 }
 /** 外观：地图上的区分标记和像素小人的长相，旧存档可带形象编号 */
 export interface Appearance {
@@ -1264,8 +1266,10 @@ export interface ProviderConfig {
   id: string
   name: string
   base_url: string
-  /** 这个服务记着的模型名；整表保存时要原样带回去，不带等于清掉 */
+  /** 这个服务记着的默认模型名；整表保存时要原样带回去，不带等于清掉 */
   model?: string
+  /** 玩家另外添加的模型候选；整表保存时同样原样带回 */
+  models?: string[]
 }
 export type ClientMsg =
   | {

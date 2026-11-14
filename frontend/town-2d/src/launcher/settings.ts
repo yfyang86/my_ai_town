@@ -254,7 +254,7 @@ export function installHomeSettings(deps: { music: { enabled(): boolean; toggle(
     const choices: ModelChoice[] = []
     for (const p of usable) {
       const current = config?.active?.provider === p.id ? config.active.model : undefined
-      for (const model of quickModelNames(p.id, current, p.model)) {
+      for (const model of quickModelNames(p.id, current, p)) {
         const selected = config?.active?.provider === p.id && config.active.model === model
         choose.append(new Option(`${p.name} · ${model}`, String(choices.length), false, selected))
         choices.push({ provider: p.id, model })

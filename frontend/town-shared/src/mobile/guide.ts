@@ -30,7 +30,14 @@ import {
   progressText,
 } from '../models/builtin'
 import { isCompact } from '../platform'
-import { BUILTIN, PRESETS, providerModel, type ProviderPreset } from '../providers'
+import {
+  BUILTIN,
+  PRESETS,
+  modelCandidates,
+  providerModel,
+  rememberProviderModel,
+  type ProviderPreset,
+} from '../providers'
 import { peopleCount, PICKS, recommendReason, roomLeft } from '../residents/recommend'
 import type { Receipt, SaveCommand } from '../connection'
 import type { ShellPanel } from '../shell/panel'
@@ -124,6 +131,7 @@ export function createGuide(d: GuideDeps) {
   // 向导里的选择
   let step = 0
   let preset: ProviderPreset = PRESETS[0]
+  let chosenModel = preset.defaultModel
   let key = ''
   /** idle：还没测；ok：连通了（或已有密钥、测试模式） */
   let test: { state: 'idle' | 'testing' | 'ok' | 'error'; message: string } = {
@@ -288,6 +296,14 @@ export function createGuide(d: GuideDeps) {
 
   function changeButton() {
     return button('换一个', () => {
+      const current = connectedChoice()
+      const next = current && PRESETS.find((item) => item.id === current.provider)
+      if (current && next) {
+        preset = next
+        chosenModel = current.model
+      }
+      key = ''
+      test = savedKey(preset.id) ? { state: 'ok', message: '' } : { state: 'idle', message: '' }
       changing = true
       render()
     })
@@ -404,6 +420,11 @@ export function createGuide(d: GuideDeps) {
         reuse = null
         skipModel = false
         preset = p
+        chosenModel = providerModel(
+          p.id,
+          providers.find((provider) => provider.id === p.id),
+          activeChoice
+        )
         key = ''
         test = savedKey(p.id) ? { state: 'ok', message: '' } : { state: 'idle', message: '' }
         render()
@@ -414,6 +435,23 @@ export function createGuide(d: GuideDeps) {
       b.append(name, el('small', p.defaultModel))
       grid.append(b)
     }
+    const modelInput = el('input')
+    modelInput.className = 'guide-key'
+    modelInput.autocomplete = 'off'
+    modelInput.spellcheck = false
+    modelInput.setAttribute('autocapitalize', 'off')
+    modelInput.setAttribute('list', 'guide-model-list')
+    modelInput.value = chosenModel
+    const modelList = el('datalist')
+    modelList.id = 'guide-model-list'
+    modelList.append(
+      ...modelCandidates(
+        preset.id,
+        providers.find((provider) => provider.id === preset.id)
+      ).map((name) => new Option(name))
+    )
+    const modelLabel = el('label', '', 'guide-field')
+    modelLabel.append(el('span', '模型 ID（可输入新的模型名）'), modelInput, modelList)
     const input = el('input')
     input.type = 'text'
     input.className = 'guide-key'
@@ -424,6 +462,12 @@ export function createGuide(d: GuideDeps) {
       ? `已保存 ${savedKey(preset.id)}，留空就用它`
       : keyPlaceholder(preset)
     input.value = key
+    modelInput.oninput = () => {
+      chosenModel = modelInput.value.trim()
+      test = { state: 'idle', message: '' }
+      status.replaceChildren(testStatus())
+      renderFoot()
+    }
     input.oninput = () => {
       key = input.value.trim()
       test =
@@ -450,8 +494,12 @@ export function createGuide(d: GuideDeps) {
     )
     return [
       el('h2', '连接一个模型'),
-      el('p', '居民靠大模型思考。选一个模型服务，填上你在那里申请的密钥。密钥只保存在这台设备上。'),
+      el(
+        'p',
+        '居民靠大模型思考。选一个模型服务和模型，填上你在那里申请的密钥。密钥只保存在这台设备上。'
+      ),
       grid,
+      modelLabel,
       label,
       status,
       alt,
@@ -471,20 +519,34 @@ export function createGuide(d: GuideDeps) {
   async function runTest(advance: boolean) {
     fromSaved = false
     reuse = null
-    if (!key) {
+    if (!key && !savedKey(preset.id)) {
       test = { state: 'error', message: '先填上密钥' }
+      render()
+      return
+    }
+    if (!chosenModel) {
+      test = { state: 'error', message: '先填上模型 ID' }
       render()
       return
     }
     test = { state: 'testing', message: '' }
     render()
     const request_id = newId()
-    const config = { id: preset.id, name: preset.name, base_url: preset.baseUrl }
+    const existing = providers.find((provider) => provider.id === preset.id)
+    const config = rememberProviderModel(
+      {
+        id: preset.id,
+        name: existing?.name ?? preset.name,
+        base_url: existing?.base_url || preset.baseUrl,
+        models: existing?.models ?? [],
+      },
+      chosenModel
+    )
     d.send({
       type: 'test_model_connection',
       request_id,
       provider: config,
-      model: preset.defaultModel,
+      model: chosenModel,
       api_key: key,
     })
     try {
@@ -494,9 +556,9 @@ export function createGuide(d: GuideDeps) {
         40000
       )
       if (!result.ok) throw Error(result.message || '连接失败')
-      // 连通了就存下来：服务商、密钥，并设为小镇的工具模型
+      // 连通了就存下来：服务商、模型、密钥，并设为小镇的工具模型
       await saved(
-        providerSaveCommand({ provider: preset.id, model: preset.defaultModel }, providers, [
+        providerSaveCommand({ provider: preset.id, model: chosenModel }, providers, [
           { provider: config, key },
         ])
       )
@@ -571,7 +633,7 @@ export function createGuide(d: GuideDeps) {
         ? '测试模式：他们用固定回复行动。'
         : reuse
           ? `都用 ${reuse.name} · ${reuse.model}，以后可以给每个人单独换。`
-          : `都用 ${preset.name} · ${preset.defaultModel}，以后可以给每个人单独换。`
+          : `都用 ${preset.name} · ${chosenModel}，以后可以给每个人单独换。`
     // 还是默认的那几位时说明为什么推荐他们
     const chosen = picks.map((id) => free.find((t) => t.template_id === id))
     const defaults =
@@ -760,12 +822,11 @@ export function createGuide(d: GuideDeps) {
     if (skipModel) return null
     if (mock()) {
       const p = providers[0]
-      const known = p && PRESETS.find((x) => x.id === p.id)
-      return p ? { provider: p.id, model: known?.defaultModel ?? 'deepseek-chat' } : null
+      return p ? { provider: p.id, model: providerModel(p.id, p) || 'deepseek-flash' } : null
     }
     if (reuse) return { provider: reuse.provider, model: reuse.model }
     if (test.state !== 'ok') return null
-    return { provider: preset.id, model: preset.defaultModel }
+    return { provider: preset.id, model: chosenModel }
   }
 
   /** 没经过选模型时挑一个能用的，和第二步的判断一样：设定里的默认模型优先，其次第一个能用的服务

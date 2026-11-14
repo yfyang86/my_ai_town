@@ -75,6 +75,7 @@
 .mc-field {
   display: grid;
   gap: 6px;
+  margin-bottom: 12px;
   color: var(--text-2);
   font-size: 13px;
 }

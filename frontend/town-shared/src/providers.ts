@@ -1,7 +1,5 @@
-// 服务商预置目录：参照老项目 ModelProviderCatalog（内容权威 ~/dev/my_ai_town）。
 // 全部走 OpenAI 兼容传输——base_url 不含 /chat/completions 后缀（host 拼接）。
-// 模型清单 = 老目录预置 + 常用官方名；页面上模型可自由输入，清单只是候选。
-// 玩家在「模型服务」里给一个服务填的模型名存在配置里（ProviderView.model），选这个服务时先填它。
+// 预置清单按各服务商 2026-11 的官方模型文档维护；玩家添加的模型存在配置里，和预置一起候选。
 import type { ActiveModelChoice, ProviderConfig, ProviderView } from './protocol'
 
 export interface ProviderPreset {
@@ -11,8 +9,6 @@ export interface ProviderPreset {
   needsKey: boolean
   models: string[]
   defaultModel: string
-  /** 聚合平台要在快捷选择里同时列出的模型；普通服务只列当前或默认模型。 */
-  quickModels?: string[]
 }
 
 export const PRESETS: ProviderPreset[] = [
@@ -21,41 +17,41 @@ export const PRESETS: ProviderPreset[] = [
     name: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
     needsKey: true,
-    models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-v4-flash', 'deepseek-v4-pro'],
-    defaultModel: 'deepseek-chat',
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
+    defaultModel: 'deepseek-flash',
   },
   {
     id: 'kimi',
     name: 'Kimi',
     baseUrl: 'https://api.moonshot.cn/v1',
     needsKey: true,
-    models: ['kimi-k3', 'kimi-k2.7-code-highspeed', 'kimi-k2.6', 'kimi-k2.5'],
-    defaultModel: 'kimi-k3',
+    models: ['kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed', 'kimi-k3'],
+    defaultModel: 'kimi-k3.1-pro',
   },
   {
     id: 'zhipu-glm',
     name: '智谱 GLM',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     needsKey: true,
-    models: ['glm-5.2', 'glm-5.1', 'glm-5', 'glm-4.7', 'glm-5v-turbo'],
-    defaultModel: 'glm-5.2',
+    models: [
+      'glm-5.3',
+      'glm-5.3-flash',
+      'glm-5.3-flashx',
+      'glm-5.2',
+      'glm-5.1',
+      'glm-5',
+      'glm-4.7',
+      'glm-5v-turbo',
+    ],
+    defaultModel: 'glm-5.3',
   },
   {
     id: 'minimax',
     name: 'MiniMax',
-    baseUrl: 'https://api.minimaxi.com/v1',
+    baseUrl: 'https://api.minimax.cn/v1',
     needsKey: true,
-    models: [
-      'MiniMax-M3',
-      'MiniMax-M2.7',
-      'MiniMax-M2.7-highspeed',
-      'MiniMax-M2.5',
-      'MiniMax-M2.5-highspeed',
-      'MiniMax-M2.1',
-      'MiniMax-M2.1-highspeed',
-      'MiniMax-M2',
-    ],
-    defaultModel: 'MiniMax-M2.7',
+    models: ['MiniMax-M3.1-Flash', 'MiniMax-M3'],
+    defaultModel: 'MiniMax-M3.1-Flash',
   },
   {
     id: 'volcengine-ark',
@@ -64,7 +60,6 @@ export const PRESETS: ProviderPreset[] = [
     needsKey: true,
     models: ['doubao-seed-2-1-turbo-260628', 'glm-5-3-flash-260828'],
     defaultModel: 'doubao-seed-2-1-turbo-260628',
-    quickModels: ['doubao-seed-2-1-turbo-260628', 'glm-5-3-flash-260828'],
   },
   {
     id: 'alibaba-bailian',
@@ -73,10 +68,12 @@ export const PRESETS: ProviderPreset[] = [
     needsKey: true,
     models: [
       'qwen3.7-plus',
+      'qwen3.8-max',
+      'qwen3.8-flash',
       'qwen3.7-max',
+      'qwen3.7-flash',
       'qwen3.6-plus',
       'qwen3.6-flash',
-      'qwen3.6-max-preview',
       'qwen3.5-plus',
       'qwen3.5-flash',
     ],
@@ -142,14 +139,32 @@ export const PRESETS: ProviderPreset[] = [
   },
 ]
 
-/** 首页和请村民时共用候选：保留玩家手填的当前模型；服务在「模型服务」里记着模型名的，没有当前模型时列它。
- *  自定义、本机服务没有预置的缺省模型，记着的模型名是它们出现在候选里的唯一来由。 */
-export function quickModelNames(provider: string, current?: string, saved?: string): string[] {
-  const preset = PRESETS.find((p) => p.id === provider)
-  const rest = preset?.quickModels
-    ? [saved, ...preset.quickModels]
-    : [current ?? (saved || preset?.defaultModel)]
-  return [...new Set([current, ...rest])].filter((model): model is string => !!model)
+type ProviderModels = Pick<ProviderView, 'model'> & Partial<Pick<ProviderView, 'models'>>
+
+function modelNames(models: (string | undefined)[]): string[] {
+  return [
+    ...new Set(models.map((model) => model?.trim()).filter((model): model is string => !!model)),
+  ]
+}
+
+/** 模型输入框和下拉框共用：当前模型排最前，再列服务记着的、玩家添加的和预置候选。 */
+export function modelCandidates(id: string, conf?: ProviderModels): string[] {
+  const preset = PRESETS.find((p) => p.id === id)
+  return modelNames([
+    conf?.model,
+    ...(conf?.models ?? []),
+    ...(preset?.models ?? []),
+    preset?.defaultModel,
+  ])
+}
+
+/** 首页和请村民时共用候选；玩家手填的当前模型即使不在目录里也保留。 */
+export function quickModelNames(
+  provider: string,
+  current?: string,
+  conf?: ProviderModels
+): string[] {
+  return modelNames([current, ...modelCandidates(provider, conf)])
 }
 
 /** 选了这个服务时模型名先填什么：「模型服务」里给它填过的；没填过时默认模型用着这个服务就用它的，
@@ -167,17 +182,30 @@ export function providerModel(
   )
 }
 
-/** 模型名输入框的候选：这个服务记着的排最前，再列预置的 */
-export function modelCandidates(id: string, conf?: Pick<ProviderView, 'model'>): string[] {
-  const preset = PRESETS.find((p) => p.id === id)
-  return [...new Set([conf?.model, ...(preset?.models ?? [])])].filter(
-    (model): model is string => !!model
-  )
+/** 服务端按整表保存：没改的服务原样写回去，模型名和玩家添加的候选都不能丢。 */
+export function providerRow(p: ProviderView): ProviderConfig {
+  const models = modelNames(p.models ?? [])
+  return {
+    id: p.id,
+    name: p.name,
+    base_url: p.base_url,
+    ...(p.model ? { model: p.model } : {}),
+    ...(models.length ? { models } : {}),
+  }
 }
 
-/** 服务端按整表保存：没改的服务原样写回去的那一行。记着的模型名要一起带上，不带就清掉了 */
-export function providerRow(p: ProviderView): ProviderConfig {
-  return { id: p.id, name: p.name, base_url: p.base_url, ...(p.model ? { model: p.model } : {}) }
+/** 选中一个模型时把它设为服务缺省；不在预置目录里的同时存进玩家候选。 */
+export function rememberProviderModel(p: ProviderConfig, model: string): ProviderConfig {
+  const preset = PRESETS.find((item) => item.id === p.id)
+  const models = modelNames([
+    ...(p.models ?? []),
+    ...(preset?.models.includes(model) ? [] : [model]),
+  ])
+  return {
+    ...p,
+    model,
+    ...(models.length ? { models } : { models: [] }),
+  }
 }
 
 /** 内置模型：不用地址和密钥，只给村民过日子用，不写人设、不建镇 */

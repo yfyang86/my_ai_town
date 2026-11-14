@@ -1,4 +1,4 @@
-// 请人入住时写明用哪个模型：「用 DeepSeek · deepseek-chat 思考」。连了几个服务时能换，
+// 请人入住时写明用哪个模型：「用 DeepSeek · deepseek-flash 思考」。连了几个服务时能换，
 // 一个都没连时说明会先住下，并给「连接模型」。村民库托盘、空镇卡片共用。
 import { button, el } from '../dom'
 import type { ModelOption } from '../models/session'

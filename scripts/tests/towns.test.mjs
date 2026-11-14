@@ -336,7 +336,7 @@ test('only one town runs at a time: entering another town closes the open one, t
     await fs.rm(root, { recursive: true, force: true })
   }
 })
-test('home settings save a key only into the data root config, read back only its mask, and cannot delete a service', async () => {
+test('home settings save custom models and a key, read back only the key mask, and cannot delete a service', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'town-models-'))
   const repoConfig = ['config/providers.json', 'config/credentials.json'].map((p) =>
     path.join(source, p)
@@ -352,7 +352,13 @@ test('home settings save a key only into the data root config, read back only it
       name,
       base_url,
     }))
-    const added = { id: 'home-test', name: '首页测试', base_url: 'http://127.0.0.1:9/v1' }
+    const added = {
+      id: 'home-test',
+      name: '首页测试',
+      base_url: 'http://127.0.0.1:9/v1',
+      model: 'm',
+      models: ['m', 'custom-model'],
+    }
     const saved = await api('/models', {
       active: { provider: added.id, model: 'm' },
       providers: [...kept, added],
@@ -360,13 +366,20 @@ test('home settings save a key only into the data root config, read back only it
     })
     const read = await api('/models')
     for (const reply of [saved, read]) {
-      assert.equal(reply.providers.find((p) => p.id === added.id)?.key_mask, 'sk-h…6789')
+      const provider = reply.providers.find((p) => p.id === added.id)
+      assert.equal(provider?.key_mask, 'sk-h…6789')
+      assert.equal(provider?.model, 'm')
+      assert.deepEqual(provider?.models, ['m', 'custom-model'])
       assert.ok(!JSON.stringify(reply).includes(key), '回读里不能有明文密钥')
     }
-    // 密钥只进数据目录的 credentials.json，不进 providers.json，也不碰仓库里的配置
+    // 密钥只进数据目录的 credentials.json；模型候选进 providers.json，也不碰仓库里的配置
     const config = path.join(root, 'config')
     assert.ok((await fs.readFile(path.join(config, 'credentials.json'), 'utf8')).includes(key))
-    assert.ok(!(await fs.readFile(path.join(config, 'providers.json'), 'utf8')).includes(key))
+    const providersText = await fs.readFile(path.join(config, 'providers.json'), 'utf8')
+    assert.ok(!providersText.includes(key))
+    const onDisk = JSON.parse(providersText).providers.find((p) => p.id === added.id)
+    assert.equal(onDisk.model, 'm')
+    assert.deepEqual(onDisk.models, ['m', 'custom-model'])
     // 选择小镇页不显示哪些剧本：记在数据目录里，编号不合规矩的整份拒收
     assert.deepEqual(await api('/prefabs'), { hidden: [] })
     assert.deepEqual(await api('/prefabs', { hidden: ['werewolf', 'swordholder', 'werewolf'] }), {

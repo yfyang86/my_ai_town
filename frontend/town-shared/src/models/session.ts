@@ -82,6 +82,7 @@ export function createModelSession(deps: {
         providers: command.providers.map((p) => ({
           ...p,
           model: p.model ?? '',
+          models: p.models ?? [],
           key_mask: keyed.has(p.id)
             ? '已保存'
             : (config?.providers.find((c) => c.id === p.id)?.key_mask ?? ''),
@@ -92,7 +93,7 @@ export function createModelSession(deps: {
 
   const providerName = (id: string) =>
     config?.providers.find((p) => p.id === id)?.name || PRESETS.find((p) => p.id === id)?.name || id
-  /** 当前模型排第一，聚合平台同时列出预置的快捷候选。 */
+  /** 当前模型排第一，再列玩家添加的和预置的候选。 */
   function options(): ModelOption[] {
     if (!config) return []
     const list: ModelOption[] = []
@@ -102,7 +103,7 @@ export function createModelSession(deps: {
       list.push({ ...active, name: providerName(active.provider) })
     for (const p of usable) {
       const current = active?.provider === p.id ? active.model : undefined
-      for (const model of quickModelNames(p.id, current, p.model)) {
+      for (const model of quickModelNames(p.id, current, p)) {
         if (!list.some((o) => o.provider === p.id && o.model === model))
           list.push({ provider: p.id, model, name: providerName(p.id) })
       }

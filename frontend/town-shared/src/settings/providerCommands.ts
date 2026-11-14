@@ -24,7 +24,7 @@ export function providerTestCommand(
 }
 
 /** 服务端按整表保存：没改的服务商原样带上，active 指派不动。
- *  改了的服务没带模型名（只改地址、密钥的入口）时沿用记着的；带了空串才是清掉 */
+ *  只改地址、密钥的入口没带模型配置时沿用已存的；显式带了才修改。 */
 export function providerSaveCommand(
   active: ActiveModelChoice | null,
   all: ProviderView[],
@@ -32,8 +32,16 @@ export function providerSaveCommand(
 ): SaveCommand {
   const edited = new Set(edits.map((e) => e.provider.id))
   const withModel = (p: ProviderConfig): ProviderConfig => {
-    const model = p.model ?? all.find((v) => v.id === p.id)?.model
-    return { id: p.id, name: p.name, base_url: p.base_url, ...(model ? { model } : {}) }
+    const old = all.find((v) => v.id === p.id)
+    const model = p.model ?? old?.model
+    const models = p.models ?? old?.models
+    return {
+      id: p.id,
+      name: p.name,
+      base_url: p.base_url,
+      ...(model ? { model } : {}),
+      ...(models?.length ? { models } : {}),
+    }
   }
   return {
     type: 'set_model_config',
