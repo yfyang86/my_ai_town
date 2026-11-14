@@ -58,6 +58,7 @@ fn server_variants() -> Vec<String> {
         ModelTestResult,
         AgentConfig,
         AgentSaved,
+        ResidentDetail,
         Error,
         WorldReset,
         Recordings,
@@ -65,6 +66,7 @@ fn server_variants() -> Vec<String> {
         Notebook,
         NotebookDetail,
         AgentLimits,
+        AgentTrace,
         Population,
         ResidentAppearanceSaved,
         Usage,
@@ -111,6 +113,7 @@ fn client_variants() -> Vec<String> {
         RestartBuiltinModel,
         TestModelConnection,
         GetAgentConfig,
+        WatchResident,
         SetPersona,
         ResetWorld,
         GetPopulation,
@@ -131,6 +134,8 @@ fn client_variants() -> Vec<String> {
         GetNotebookDetail,
         GetAgentLimits,
         SetAgentLimits,
+        GetAgentTrace,
+        SetAgentTrace,
     })
 }
 

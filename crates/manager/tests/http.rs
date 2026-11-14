@@ -268,6 +268,37 @@ fn created_maps_are_validated_before_they_become_towns() {
     let mut empty = choices.clone();
     empty["draft"] = serde_json::json!({ "title": "空的" });
     assert_eq!(post(&manager, "/story", &empty).0, 400);
+    // 提示词调校：存一份风格模式的，拼出来的模板里有那一段、输出格式还在；专业模式少了要紧的东西有提醒
+    let styled = serde_json::json!({ "settings": {
+        "story": { "mode": "style", "modules": { "style": "短句，留白。" }, "pro": "", "preset": "gulong" },
+    } });
+    let (status, kept) = post(&manager, "/prompts", &styled);
+    assert_eq!(status, 200, "{kept}");
+    assert_eq!(
+        kept["settings"]["story"]["modules"]["style"],
+        "短句，留白。"
+    );
+    let tuning =
+        |tuning: &serde_json::Value| serde_json::json!({ "target": "story", "tuning": tuning });
+    let (_, composed) = post(
+        &manager,
+        "/prompts/preview",
+        &tuning(&kept["settings"]["story"]),
+    );
+    let template = composed["template"].as_str().unwrap();
+    assert!(
+        template.contains("【文风和气质】\n短句，留白。")
+            && template.contains("只输出一个 JSON 对象")
+    );
+    let bare =
+        serde_json::json!({ "mode": "pro", "modules": {}, "pro": "随便写点什么", "preset": "" });
+    let (_, warned) = post(&manager, "/prompts/preview", &tuning(&bare));
+    assert!(!warned["warnings"].as_array().unwrap().is_empty());
+    let (status, reset) = post(&manager, "/prompts", &serde_json::json!({ "settings": {} }));
+    assert_eq!(
+        (status, &reset["settings"]["story"]["mode"]),
+        (200, &serde_json::json!("default"))
+    );
     let big = serde_json::json!({
         "draft_id": draft["id"], "request_id": "big", "expected_version": draft["version"],
         "creation": { "scenario": { "blob": "x".repeat(70000) } },

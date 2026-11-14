@@ -3,7 +3,7 @@
 //! cargo run -p host -- [--mock-llm [--mock-delay 3]]
 //!   [--port 8787] [--speed 1.0] [--map-document data/maps/2d-town/map.json]
 //!   [--save-file 路径 | --no-save] [--town-id ID] [--ready-file 路径] [--connection-token 标识]
-//!   [--stop-on-stdin-close]
+//!   [--stop-on-stdin-close] [--autosave-seconds 30]
 //!
 //! 村民由 Agent 会话驱动；旧的无会话存档由 Agent 接续。
 //! 模型和玩家的动作都走内核命令校验。
@@ -16,6 +16,7 @@ mod library_commands;
 mod network;
 mod prop_commands;
 mod recording_commands;
+mod resident_detail;
 mod resident_driver;
 mod runtime;
 mod settings;
@@ -177,6 +178,9 @@ fn build_runtime(
             )
         })
         .transpose()?;
+    if let (Some(store), Some(interval)) = (&mut store, args.autosave) {
+        store.set_autosave(interval);
+    }
     let saved = restore(&mut store, &mut world)?;
     host::maps::walk::restore_prop_positions(&mut world, args.save_file.as_deref())?;
     world.avatar_leave()?;
@@ -188,7 +192,7 @@ fn build_runtime(
     world.bind_weather_world(&population.world_id);
     let world_settings = saved.world_settings;
     let settings = Settings::load(app)?;
-    let mut driver = start_driver(
+    let driver = start_driver(
         &mut world,
         &population,
         &world_settings,
@@ -199,12 +203,11 @@ fn build_runtime(
     // 管理服务给了共用村民库就用它，顺便把旧版存在各小镇目录里的模板收进来；
     // 单独运行（没有管理服务）时放在存档旁边
     let town_dir = store.as_ref().and_then(|s| s.path().parent());
-    // 记录（台词、想法、世界日志、Agent 轨迹）跟着小镇目录走；村民驱动抄轨迹用同一份
+    // 记录（台词、想法、世界日志）跟着小镇目录走
     let transcript = host::transcript::Transcript::default();
     if let Some(dir) = town_dir {
         transcript.open(dir, &population.world_id);
     }
-    driver.transcript = transcript.clone();
     let reels = town_dir.map(|dir| recording_commands::ReelSource {
         town_dir: dir.to_path_buf(),
         town_id: args.town_id.clone(),
@@ -253,6 +256,7 @@ fn build_runtime(
         tape: Default::default(),
         transcript,
         reels,
+        watchers: Default::default(),
     })
 }
 

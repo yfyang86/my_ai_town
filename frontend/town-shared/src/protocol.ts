@@ -226,19 +226,21 @@ interface WorldFact {
     previous_version: string | null
   }
 }
+/** 名册里每拍都带的 Agent 状态：画面和各面板判断用。目标、动作结果、互动和记着的事不在这里，
+ *  见 ResidentDetailView */
 export interface ResidentAgentView {
   state: AgentState
   reason: string
   /** 在等时等什么、最迟几点醒来；event 是哪类事件来了会提前醒，只按时间等时没有 */
   wait?: { reason: string; until: number; event?: FactKind }
-  daily_calls: number
-  daily_limit: number
-  daily_tokens: number
-  daily_input_tokens: number
-  daily_cache_hit_tokens: number
-  /** 生活决策回复累计数与其中因世界变化过时、未执行的数 */
-  replies: number
-  stale_replies: number
+  /** 最近定下或改过的进行中目标；换了，画面上这个人头上冒灯泡 */
+  latest_goal?: { id: string; updated_at: number }
+  /** 最近一次自己发起、被对方婉拒的邀请（编号）；换了，画面上这个人头上冒怒气 */
+  declined_invitation?: string
+}
+/** 角色卡「目标与记忆」里的细节。不随名册发：页面用 watch_resident 说了在看谁，世界才把那一位的
+ *  发来（resident_detail），之后变了再发 */
+export interface ResidentDetailView {
   goals: {
     id: string
     title: string
@@ -294,6 +296,8 @@ export interface ProviderView {
   name: string
   base_url: string
   key_mask: string
+  /** 「模型服务」里给这个服务填的模型名，选这个服务时自动填上；没填过为空串 */
+  model: string
 }
 /** 外观：地图上的区分标记和像素小人的长相，旧存档可带形象编号 */
 export interface Appearance {
@@ -535,6 +539,20 @@ export interface AgentLimits {
   total_tokens: number
   stale_replies_before_pause: number
   model_failures_before_pause: number
+}
+/** Agent 轨迹日志：开关跟着这台设备，日志按小镇放在小镇目录的 logs/ 里（host 的 agent_trace.rs） */
+export interface AgentTraceState {
+  /** 记不记每次请求的完整题面（整份 messages 和工具表）；不记时只记每轮新给的那条 */
+  full_prompts: boolean
+  /** 日志目录（绝对路径） */
+  dir: string
+  /** 这个小镇现有几份、共多少字节，连正在写的一份 */
+  files: number
+  bytes: number
+  /** 一份写到这么大换下一份 */
+  file_bytes: number
+  /** 每个小镇最多留这么大，超了先删最早的 */
+  keep_bytes: number
 }
 export interface ResidentUsage {
   id: string
@@ -1173,6 +1191,9 @@ export type ServerMsg =
       model_binding?: ModelChoice
     }
   | { type: 'agent_saved'; request_id: string; ok: boolean; message: string }
+  /** 角色卡细节：只发给说了在看这位村民的页面（watch_resident），说的时候一份，之后变了才发；
+   *  这位村民没有 Agent 会话时没有 detail */
+  | { type: 'resident_detail'; resident_id: string; detail?: ResidentDetailView }
   /**
    * 通用错误：命令无法执行、格式错误、读取失败或保存失败。request_id 是引起错误的命令自带的编号
    * （加入小镇是操作编号）；周期存盘失败这类不是由命令引起的错误没有。
@@ -1197,6 +1218,7 @@ export type ServerMsg =
       error: string | null
     }
   | { type: 'agent_limits'; limits: AgentLimits; ranges: AgentLimitRanges; usage: AgentUsage }
+  | { type: 'agent_trace'; state: AgentTraceState }
   | { type: 'population'; population: PopulationView }
   | {
       type: 'resident_appearance_saved'
@@ -1242,6 +1264,8 @@ export interface ProviderConfig {
   id: string
   name: string
   base_url: string
+  /** 这个服务记着的模型名；整表保存时要原样带回去，不带等于清掉 */
+  model?: string
 }
 export type ClientMsg =
   | {
@@ -1344,7 +1368,10 @@ export type ClientMsg =
       near?: { space: string; position: [number, number] }
     }
   | { type: 'set_speed'; request_id: string; speed: number }
-  | { type: 'get_model_config' | 'get_agent_limits' | 'get_population' | 'get_usage' }
+  | {
+      type:
+        'get_model_config' | 'get_agent_limits' | 'get_agent_trace' | 'get_population' | 'get_usage'
+    }
   | { type: 'reset_world'; request_id: string }
   | { type: 'get_resident_library'; filter: LibraryFilter }
   | {
@@ -1396,6 +1423,9 @@ export type ClientMsg =
     }
   | { type: 'get_resident_join_result'; world_id: string; op_id: string }
   | { type: 'get_agent_config' | 'get_diary'; resident?: string }
+  /** 说自己在看哪位村民的角色卡细节（回 resident_detail，之后变了再发）；不带 resident 是不看了。
+   *  一条连接同时只看一位，断线后世界不记得，重连要再说一遍 */
+  | { type: 'watch_resident'; resident?: string }
   | { type: 'get_notebook'; resident: string; request_id: string; query: NotebookQuery }
   | {
       type: 'get_notebook_detail'
@@ -1421,6 +1451,7 @@ export type ClientMsg =
     }
   | { type: 'set_persona'; request_id: string; resident: string; text: string }
   | { type: 'set_agent_limits'; request_id: string; limits: AgentLimits }
+  | { type: 'set_agent_trace'; request_id: string; full_prompts: boolean }
 
 type Life = 'alive' | 'dead'
 /** 生命历史里一条记录的来源 */

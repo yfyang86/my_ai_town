@@ -1,13 +1,16 @@
-//! 记录：世界进程把说过的话、想法、世界里发生的事和村民 Agent 的完整轨迹顺手写进小镇目录，
+//! 记录：世界进程把说过的话、想法、世界里发生的事顺手写进小镇目录，
 //! 玩家事后能整份下载（管理服务的 `/api/towns/<小镇>/transcript` 照着这里的文件发）。
 //!
-//! 目录 `transcript/` 里按种类各一个文件，一直往后追加，每行一条 JSON：
+//! 目录 `transcript/` 里按种类各一个文件，一直往后追加，每行一条 JSON（Agent 的轨迹不在这里另抄一份，见下）：
 //! - `chat.jsonl`：台词（私聊里的一句）和玩法里的发言（议事、演说……）；
 //! - `thought.jsonl`：村民每次做决定时的想法和它的来由；
 //! - `event.jsonl`：世界日志（走动、活动、检定、战斗……），不含模型请求的台账行；
-//! - `trace.jsonl`：村民 Agent 的轨迹——发给模型的请求、模型的回复、工具调用和结果。
 //!
-//! 每行都带 `kind`、现实时间 `at`（毫秒）、世界编号 `world`、世界里的分钟 `minutes`；重置世界后 `world` 会换。
+//! 下载时的第四种「trace」是村民 Agent 的轨迹——发给模型的请求、模型的回复、工具调用和结果。它由
+//! agent_trace.rs 写在小镇目录的 `logs/` 里，有大小上限，记不记完整题面看设定里的「日志」；这里只是读出来
+//! （最多 TRACE_DOWNLOAD_BYTES，超了给最新的），每行是 `{"trace":…, "model_snapshot":…}`，没有下面那几项。
+//!
+//! 前三种每行都带 `kind`、现实时间 `at`（毫秒）、世界编号 `world`、世界里的分钟 `minutes`；重置世界后 `world` 会换。
 //! 台词和想法从名册里新出现的那一条记下，和页面的动态同一个办法；进程刚起来时名册上已有的不补记。
 //! 世界不存档（没有小镇目录）时不记。写不进去只记一次日志，世界照常跑。
 use protocol::{RosterMember, ServerMsg};
@@ -21,8 +24,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 小镇目录下放记录的子目录
 pub const TRANSCRIPT_DIR: &str = "transcript";
-/// 记录的种类，也是文件名（加 `.jsonl`）
+/// 记录的种类；前三种也是 transcript/ 里的文件名（加 `.jsonl`），trace 读的是 logs/ 里的轨迹日志
 pub const KINDS: [&str; 4] = ["chat", "thought", "event", "trace"];
+/// 小镇目录下放轨迹日志的子目录（管理服务开世界进程时用 AI_TOWN_LOG_DIR 指到这里）
+pub const LOGS_DIR: &str = "logs";
+/// 一次下载最多给这么多轨迹
+pub const TRACE_DOWNLOAD_BYTES: u64 = 64 << 20;
 
 /// 记录本：模拟循环、广播和村民驱动共用的一份。
 #[derive(Clone, Default)]
@@ -194,17 +201,6 @@ impl Transcript {
             _ => {}
         }
     }
-
-    /// 村民 Agent 的一条轨迹（和日志目录里那份一样的内容）。
-    pub fn trace(&self, record: &Value) {
-        if let Some(book) = self.0.lock().unwrap().as_mut() {
-            let mut line = record.clone();
-            if let Some(minutes) = record["trace"]["sim_minutes"].as_f64() {
-                line["minutes"] = json!(minutes);
-            }
-            book.write("trace", line);
-        }
-    }
 }
 
 /// 管理服务发下载用：小镇目录里选中的几种记录，每种是它那个文件的原文（每行一条 JSON）。
@@ -213,6 +209,11 @@ pub fn read(town_dir: &Path, wanted: &[&str]) -> std::io::Result<Value> {
     let mut kinds = serde_json::Map::new();
     for kind in KINDS {
         if !wanted.is_empty() && !wanted.contains(&kind) {
+            continue;
+        }
+        if kind == "trace" {
+            let text = crate::agent_trace::recent(&town_dir.join(LOGS_DIR), TRACE_DOWNLOAD_BYTES)?;
+            kinds.insert(kind.into(), json!(text));
             continue;
         }
         let path = town_dir.join(TRANSCRIPT_DIR).join(format!("{kind}.jsonl"));

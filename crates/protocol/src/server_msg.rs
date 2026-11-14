@@ -1,10 +1,11 @@
 //! 服务端消息（后端 → 前端）。命令的回执、查询结果与错误只发给发出命令的连接，回执带命令的
 //! 请求编号，前端按编号配对；名册、事件、想法和其他状态变化广播给所有连接。
+//! 角色卡细节（ResidentDetail）和化身状态只发给在看、在控制的那条连接。
 use crate::{
     ActiveModelChoice, AgentLimits, AgentUsage, ChatEntry, ChatSummary, DiaryDay, JoinOutcome,
     JoinPreview, ModelChoice, NeedsTuning, NotebookDetail, NotebookView, PopulationView,
-    ProviderView, RequestView, ResidentTemplate, ResidentUsage, RosterLocale, TemplateCard,
-    TemplateFields, UsageSummary, WorldHold,
+    ProviderView, RequestView, ResidentDetailView, ResidentTemplate, ResidentUsage, RosterLocale,
+    TemplateCard, TemplateFields, UsageSummary, WorldHold,
 };
 use serde::Serialize;
 
@@ -33,6 +34,23 @@ pub struct WorldSettingsView {
     pub strangers: bool,
     pub world_id: String,
     pub worldview: String,
+}
+
+/// Agent 轨迹日志（host 的 agent_trace.rs）：开关跟着这台设备，日志按小镇放在小镇目录的 logs/ 里。
+/// 字段按字母序声明。
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentTraceView {
+    /// 这个小镇的轨迹日志现有多少字节、几份，连正在写的一份
+    pub bytes: u64,
+    /// 日志目录（绝对路径）
+    pub dir: String,
+    /// 一份写到这么大换下一份
+    pub file_bytes: u64,
+    pub files: usize,
+    /// 记不记每次请求的完整题面（整份 messages 和工具表）；不记时只记每轮新给的那条
+    pub full_prompts: bool,
+    /// 每个小镇最多留这么大，超了先删最早的
+    pub keep_bytes: u64,
 }
 
 /// host 只发送、不解析这些消息，所以只实现 Serialize。
@@ -178,6 +196,13 @@ pub enum ServerMsg {
         ok: bool,
         message: String,
     },
+    /// 角色卡细节：只发给用 WatchResident 说了在看这位村民的连接，说的时候一份，之后变了才发。
+    /// 这位村民没有 Agent 会话（或不在世界里）时 detail 省略。
+    ResidentDetail {
+        resident_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<ResidentDetailView>,
+    },
     /// 通用错误：命令无法执行、格式错误、读取失败或保存失败。request_id 是引起错误的命令自带的
     /// 编号（加入小镇的命令是它的操作编号）；不是由某条命令引起的（周期存盘失败）或命令没有编号时省略。
     Error {
@@ -217,6 +242,8 @@ pub enum ServerMsg {
         ranges: crate::AgentLimitRanges,
         usage: AgentUsage,
     },
+    /// Agent 轨迹日志的开关和这个小镇的日志用了多少（设定中心「日志」页用）
+    AgentTrace { state: AgentTraceView },
     /// 当前人口：世界标识、人口版本、居民登记与住宅占用
     Population { population: PopulationView },
     /// 已入住居民外观的保存结果；总是带当前人口，前端可据此处理版本冲突。

@@ -19,7 +19,11 @@ const KINDS: { kind: Kind; label: string; hint: string }[] = [
   { kind: 'chat', label: '对话', hint: '私聊里的每一句、玩法里的发言' },
   { kind: 'thought', label: '想法', hint: '每次做决定时心里想的和来由' },
   { kind: 'event', label: '世界日志', hint: '走动、活动、检定、战斗这些发生过的事' },
-  { kind: 'trace', label: '模型轨迹', hint: '发给模型的请求、回复、工具调用和结果，很大' },
+  {
+    kind: 'trace',
+    label: '模型轨迹',
+    hint: '发给模型的请求、回复、工具调用和结果，很大；记不记完整题面看设定里的「日志」',
+  },
 ]
 const FORMATS: { format: Format; label: string; ext: string; mime: string }[] = [
   { format: 'json', label: 'JSON', ext: 'json', mime: 'application/json' },
@@ -30,15 +34,27 @@ const FORMATS: { format: Format; label: string; ext: string; mime: string }[] = 
 /** 管理服务给的原文（每种一段，每行一条 JSON）拆成条目，按世界里的先后排；写到一半的最后一行不要 */
 export function parseRecords(kinds: Partial<Record<Kind, string>>): RecordLine[] {
   const lines: RecordLine[] = []
-  for (const text of Object.values(kinds))
+  for (const [kind, text] of Object.entries(kinds) as [Kind, string | undefined][])
     for (const row of (text ?? '').split('\n')) {
       if (!row.trim()) continue
       try {
-        lines.push(JSON.parse(row) as RecordLine)
+        const line = JSON.parse(row) as RecordLine
+        // 轨迹是世界进程的日志原样给的（{trace, model_snapshot}），没有种类和时刻：在这里补上。
+        // 它不记是哪个世界，算在记录里最新的那个世界上（重置过世界的小镇，旧世界的轨迹会排到新世界里）
+        if (!line.kind) {
+          const trace = (line as { trace?: { sim_minutes?: number } }).trace
+          Object.assign(line, { kind, at: 0, world: '', minutes: trace?.sim_minutes ?? 0 })
+        }
+        lines.push(line)
       } catch {
         // 世界进程正写到一半的那一行
       }
     }
+  const latest = lines.reduce<RecordLine | null>(
+    (best, l) => (l.world && (!best || l.at > best.at) ? l : best),
+    null
+  )
+  for (const l of lines) if (!l.world) l.world = latest?.world ?? '（只有轨迹）'
   // 同一个世界里按世界分钟排；不同的世界（重置过）按现实时间分先后
   const born = new Map<string, number>()
   for (const l of lines) born.set(l.world, Math.min(born.get(l.world) ?? Infinity, l.at))

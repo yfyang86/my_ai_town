@@ -225,6 +225,12 @@ pub enum ClientMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resident: Option<String>,
     },
+    /// 说自己在看哪位村民的角色卡细节（回 ResidentDetail，之后细节变了再发）；不带 resident 是不看了。
+    /// 一条连接同时只看一位；连接断了世界就不记得，重连后要再说一遍。
+    WatchResident {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resident: Option<String>,
+    },
     /// 保存人设原文（markdown；热重载，下一次请求计划生效）
     SetPersona {
         request_id: String,
@@ -343,6 +349,13 @@ pub enum ClientMsg {
         request_id: String,
         limits: AgentLimits,
     },
+    /// 读 Agent 轨迹日志的开关和这个小镇的日志用了多少（回 AgentTrace）
+    GetAgentTrace,
+    /// 轨迹日志记不记完整题面：跟着这台设备，即时生效；回执是 ConfigSaved，随后广播 AgentTrace
+    SetAgentTrace {
+        request_id: String,
+        full_prompts: bool,
+    },
 }
 
 impl ClientMsg {
@@ -383,7 +396,8 @@ impl ClientMsg {
             | ArchiveResidentTemplate { request_id, .. }
             | GetNotebook { request_id, .. }
             | GetNotebookDetail { request_id, .. }
-            | SetAgentLimits { request_id, .. } => Some(request_id),
+            | SetAgentLimits { request_id, .. }
+            | SetAgentTrace { request_id, .. } => Some(request_id),
             JoinResident { op_id, .. } | GetResidentJoinResult { op_id, .. } => Some(op_id),
             AvatarInput { .. }
             | GetWorldSettings
@@ -391,6 +405,7 @@ impl ClientMsg {
             | GetProps
             | GetModelConfig
             | GetAgentConfig { .. }
+            | WatchResident { .. }
             | GetPopulation
             | GetUsage
             | GetResidentLibrary { .. }
@@ -398,7 +413,8 @@ impl ClientMsg {
             | PreviewTemplatePersona { .. }
             | PreviewResidentJoin { .. }
             | GetDiary { .. }
-            | GetAgentLimits => None,
+            | GetAgentLimits
+            | GetAgentTrace => None,
         }
     }
 }

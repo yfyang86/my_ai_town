@@ -63,7 +63,7 @@ The world stays paused until the player presses play.
 
 - **Memory page** (`memory.ts`, `memory/`): notebook categories, search, entry detail with sources and history (`get_notebook`, `get_notebook_detail`).
 - **Diary** (`diary.ts`): per day, world log and the resident's thoughts.
-- **Info panel** (`info/agent.ts`): goals, last results, interactions, remembered things (`ResidentAgentView.memories`).
+- **Info panel** (`info/agent.ts`): goals, last results, interactions, remembered things and dreams (`ResidentDetailView`, requested with `watch_resident` while the card is open; the roster itself only carries the small `ResidentAgentView`).
 
 ## Platform branches
 
