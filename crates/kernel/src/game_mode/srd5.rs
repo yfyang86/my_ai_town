@@ -202,6 +202,8 @@ pub struct RulesetWords {
     pub weapons: Vec<(String, String)>,
     pub armor: Vec<(String, String)>,
     pub creatures: Vec<(String, String)>,
+    /// 生物的分量：编号和打赢它给的经验，故事编辑器拿它掂量一场遭遇战对卷进来的人重不重
+    pub threat: Vec<(String, u32)>,
     /// 法术：编号、名字、环数、哪些职业能用
     pub spells: Vec<(String, String, u32, Vec<String>)>,
 }
@@ -239,6 +241,19 @@ pub fn words() -> RulesetWords {
             .creatures
             .iter()
             .map(|c| pair(&c.id, &c.name))
+            .collect(),
+        threat: gear
+            .creatures
+            .iter()
+            .map(|c| {
+                let xp = magic()
+                    .experience
+                    .creatures
+                    .get(&c.id)
+                    .copied()
+                    .unwrap_or(0);
+                (c.id.clone(), xp)
+            })
             .collect(),
         spells: magic()
             .spells

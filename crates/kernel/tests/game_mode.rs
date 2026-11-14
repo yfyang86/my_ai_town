@@ -963,7 +963,12 @@ fn storyline_fires_beats_runs_a_scene_tracks_milestones_and_ends() {
     w.step(6.0);
     assert!(storyline(&w).milestones[1].done);
 
-    // 13:00 收场：没人宣布的那一项算没达成，工具收走
+    // 13:00 到点：1 号还握着没宣布的那一项，再等二十分钟（按正常速度走），只告诉他这是最后的机会
+    w.step(13.0 * HOUR + 5.0 - w.minutes());
+    assert!(!storyline(&w).ended);
+    assert_eq!(w.game_mode_tempo(), 1.0);
+    assert!(told(&w, "r1", "最后的机会") && !told(&w, "r3", "最后的机会"));
+    // 等过了还没人宣布：收场，那一项算没达成，工具收走
     let logged = w.step(4.0 * HOUR);
     let v = storyline(&w);
     assert!(v.ended);

@@ -36,6 +36,8 @@ const SCENE_CHARS: std::ops::RangeInclusive<u32> = 20..=600;
 const EVIDENCE_CHARS: usize = 200;
 /// 最后一个节拍过了以后、离收场不到这么久（游戏分钟）时提醒一遍：还有只能由自己宣布的里程碑的人，各自被单独叫到
 const LAST_CALL_MINUTES: f64 = 120.0;
+/// 到了收场的钟点还有人握着没宣布的里程碑：再等这么久（游戏分钟，按正常速度走），正在路上的宣布来得及算数
+const GRACE_MINUTES: f64 = 20.0;
 /// 主持人裁定时能选的难度
 const RULING_DCS: [u32; 5] = [5, 10, 15, 20, 25];
 /// 一个人每个游戏小时最多请主持人裁定几件事
@@ -386,6 +388,9 @@ pub struct Storyline {
     /// 收场前的提醒叫过了（见 last_call）
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub last_call: bool,
+    /// 到点了、正在等最后几句宣布（见 GRACE_MINUTES）
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closing: bool,
     /// 开着的规则套件（角色卡、骰子、检定的经过）；没开时存档里没有这一项
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<Srd5>,
@@ -472,6 +477,7 @@ impl Storyline {
             reached: BTreeMap::new(),
             ended: false,
             last_call: false,
+            closing: false,
             rules,
         })
     }
@@ -1025,6 +1031,26 @@ impl Storyline {
             return true;
         }
         if now < self.end_at() {
+            return false;
+        }
+        // 到点了。还有人握着没宣布的里程碑：再等一小会儿，不然模型正写着的那句宣布刚好晚一步就不算了
+        let waiting =
+            (0..self.seats.len()).any(|i| self.here(world, i) && !self.declarable(i).is_empty());
+        if waiting && !self.closing {
+            self.closing = true;
+            let text = format!(
+                "{}收场的钟点到了。还有话要当众定下来的，这是最后的机会；{GRACE_MINUTES} 分钟后收场。",
+                self.tag()
+            );
+            for i in 0..self.seats.len() {
+                if self.here(world, i) && !self.declarable(i).is_empty() {
+                    self.tell(world, &[i], &text);
+                    self.call(world, i, &text);
+                }
+            }
+            return true;
+        }
+        if waiting && now < self.end_at() + GRACE_MINUTES {
             return false;
         }
         self.finish(world);
@@ -2204,6 +2230,7 @@ impl Rules for Storyline {
             Some(scene) => scene.until,
             None if self.next < self.script.beats.len() => self.beat_at(self.next),
             None if !self.last_call => self.last_call_at(),
+            None if self.closing => self.end_at() + GRACE_MINUTES,
             None => self.end_at(),
         };
         let wait = (due - now).max(0.0);
@@ -2215,7 +2242,7 @@ impl Rules for Storyline {
     }
 
     fn tempo(&self, _world: &World) -> f64 {
-        if self.scene.is_some() || self.ended || self.fighting() {
+        if self.scene.is_some() || self.ended || self.fighting() || self.closing {
             1.0
         } else {
             FREE_TEMPO
