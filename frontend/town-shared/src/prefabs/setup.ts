@@ -15,6 +15,7 @@ import type {
 import { segmented, settingRow, switchControl } from '../settings/controls'
 import type { ShellPanel } from '../shell/panel'
 import type { createWorldSettings } from '../worldSettings'
+import type { WeatherKind, WeatherView } from '../weather/types'
 import {
   applyOption,
   withField,
@@ -28,7 +29,7 @@ import {
 // 玩法自己的几行（预制小镇的 options：圈的位置、身份、白天长短……）、吃喝睡开不开；
 // 想细调的再展开「规则」（钟点、期限、关掉哪些环节）和「人设」（这一局每位选手的名字、性格、处境，只管这一局）；
 // 世界观、玩法和其余设定由预制小镇写好。
-// 点「开始这一局」依次保存世界观、生理开关，定气候、布置地图上的道具、调额度（预制小镇写了才做），
+// 点「开始这一局」依次保存世界观、生理开关，定气候和天气、布置地图上的道具、调额度（预制小镇写了才做），
 // 按号码请人入住（入住时带上各自的模型；有这一局自己的人设时带上人设），换上这一局捏好的长相，最后打开玩法；
 // 哪一步出错就停在那一步说明原因，再点一次从那一步接着做。做完世界还停着，玩家点左上角的 ▶ 开始。
 // 跳过就交回原来的首次对话框，像普通小镇一样自己设。
@@ -110,6 +111,8 @@ export function createPrefabSetup(d: {
   let worldviewSaved = false
   let needsSaved = false
   let climateSaved = false
+  let weatherSaved = false
+  let weather: WeatherView | undefined
   let furnished = false
   let limitsSaved = false
   let dressed = false
@@ -569,6 +572,36 @@ export function createPrefabSetup(d: {
     if (!reply.ok) throw Error(reply.message)
   }
 
+  /** 天气有独立修订号，不能使用世界设定的 revision；冲突回执会刷新缓存，重试时再取。 */
+  async function setWeather(kind: WeatherKind) {
+    const world = d.worldSettings.state()
+    if (!world) throw Error('还没读到世界设定')
+    const current =
+      weather?.world_id === world.world_id
+        ? weather
+        : await waitFor((m) =>
+            m.type === 'roster' && m.environment?.world_id === world.world_id
+              ? m.environment
+              : undefined
+          )
+    if (current.mode === 'fixed' && current.kind === kind) return
+    const request_id = newId()
+    d.send({
+      type: 'set_weather',
+      world_id: world.world_id,
+      request_id,
+      expected_revision: current.revision,
+      mode: 'fixed',
+      kind,
+    })
+    const reply = await waitFor((m) =>
+      (m.type === 'weather_saved' || m.type === 'error') && m.request_id === request_id
+        ? m
+        : undefined
+    )
+    if (reply.type === 'error' || !reply.ok) throw Error(reply.message)
+  }
+
   async function join(
     templateId: string,
     model: ModelChoice | null,
@@ -675,6 +708,12 @@ export function createPrefabSetup(d: {
         climateSaved = true
         remember()
       }
+      if (p.weather && !weatherSaved) {
+        status = '正在设定开局天气…'
+        render()
+        await setWeather(p.weather)
+        weatherSaved = true
+      }
       if (p.furnish && !furnished) {
         status = '正在布置地图上的东西…'
         render()
@@ -742,6 +781,10 @@ export function createPrefabSetup(d: {
 
   const panel: ShellPanel = {
     handleMsg(m: ServerMsg) {
+      if (m.type === 'world_settings' && weather?.world_id !== m.state.world_id) weather = undefined
+      const next = m.type === 'roster' || m.type === 'weather_saved' ? m.environment : null
+      if (next && (weather?.world_id !== next.world_id || next.revision >= weather.revision))
+        weather = next
       if (m.type === 'resident_library') {
         for (const t of m.templates) {
           names.set(t.template_id, t.name)

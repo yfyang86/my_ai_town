@@ -18,6 +18,7 @@ import { initStoryEditor } from './storyEditor'
 import { warmSelectedGame } from '../startupWarmup'
 import { MUSIC_TRACKS } from 'town-shared/audio/catalog'
 import { createMusicController } from 'town-shared/audio/music'
+import { createMusicPlayer } from 'town-shared/audio/player'
 import {
   chooseMusic,
   musicWorldOf,
@@ -225,7 +226,15 @@ const launcherMusic = createMusicController(
   { first: 'title-overture' }
 )
 launcherMusic.setChoice(titleChoice(MUSIC_TRACKS))
-window.addEventListener('pagehide', () => launcherMusic.dispose(), { once: true })
+const musicPlayer = createMusicPlayer(launcherMusic, { host: launcher, placement: 'home' })
+window.addEventListener(
+  'pagehide',
+  () => {
+    musicPlayer.dispose()
+    launcherMusic.dispose()
+  },
+  { once: true }
+)
 const homeSettings = installHomeSettings({ music: launcherMusic })
 /** 刚建好的小镇：预览出来后先看整张图 */
 let fitNext = ''
@@ -666,7 +675,10 @@ function drawList() {
   // 三组：随应用带的地图、选了就玩某个玩法的剧本（还没生成的也排在这里，选中时才生成）、玩家自己建的。
   // 管理服务按名字的编码排；剧本按登记的顺序，自己建的按拼音，都在这里排
   const groups: [string, HTMLElement[]][] = [
-    ['内置地图', maps.filter((m) => m.origin === 'builtin').map(mapOption)],
+    [
+      '内置地图',
+      maps.filter((m) => m.origin === 'builtin' && !m.id.startsWith('prefab-')).map(mapOption),
+    ],
     [
       '剧本',
       // 按登记的顺序排，开过的和还没生成的混在一起；玩家关掉不显示的不列

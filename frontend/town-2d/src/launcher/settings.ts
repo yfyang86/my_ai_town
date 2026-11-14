@@ -7,6 +7,7 @@
 import { openPromptStudio } from 'town-shared/prompts/studio'
 import { effectsPreference } from 'town-shared/audio/effects'
 import { storyMusicPreference } from 'town-shared/audio/controller'
+import type { MusicControls } from 'town-shared/audio/music'
 import { button, el, query } from 'town-shared/dom'
 import { errorText } from 'town-shared/format'
 import { gameIcon } from 'town-shared/game/icons'
@@ -79,7 +80,7 @@ function homeTransport(): ModelTransport & { load(): Promise<ModelConfig> } {
   }
 }
 
-export function installHomeSettings(deps: { music: { enabled(): boolean; toggle(): void } }) {
+export function installHomeSettings(deps: { music: MusicControls }) {
   const transport = homeTransport()
   const entry = button('', () => open(), 'launcher-settings hud-button')
   entry.append(pixelIcon('gear'), el('span', '设定'))

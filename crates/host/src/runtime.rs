@@ -164,7 +164,8 @@ impl Runtime {
             | ClientMsg::SetRecording { request_id, .. }
             | ClientMsg::DeleteRecording { request_id, .. }
             | ClientMsg::SetStrangers { request_id, .. }
-            | ClientMsg::SetGameMode { request_id, .. } => ServerMsg::WorldSettingsSaved {
+            | ClientMsg::SetGameMode { request_id, .. }
+            | ClientMsg::GameModeControl { request_id, .. } => ServerMsg::WorldSettingsSaved {
                 request_id: request_id.clone(),
                 ok: false,
                 message,
@@ -307,6 +308,11 @@ impl Runtime {
                 game_mode,
                 ..
             } => self.save_game_mode(request_id, game_mode),
+            GameModeControl {
+                request_id,
+                command,
+                ..
+            } => self.control_game_mode(request_id, &command),
             SetSpeed { speed, .. } => self.set_speed(speed, clients),
             ResetWorld { .. } => self.reset(),
             GetProps => Outcome::reply(self.props_message()),
@@ -748,6 +754,7 @@ fn world_id_of(msg: &ClientMsg) -> Option<&str> {
         | ClientMsg::DeleteRecording { world_id, .. }
         | ClientMsg::SetStrangers { world_id, .. }
         | ClientMsg::SetGameMode { world_id, .. }
+        | ClientMsg::GameModeControl { world_id, .. }
         | ClientMsg::RemoveProp { world_id, .. }
         | ClientMsg::PlaceProp { world_id, .. }
         | ClientMsg::GetPlacementGrid { world_id, .. }
@@ -804,6 +811,7 @@ fn requires_ready(msg: &ClientMsg) -> bool {
         | ClientMsg::JoinResident { .. }
         | ClientMsg::SetResidentAppearance { .. }
         | ClientMsg::SetResidentBody { .. } => true,
+        ClientMsg::GameModeControl { .. } => true,
         ClientMsg::SetSpeed { speed, .. } => *speed > 0.0,
         ClientMsg::Content { command, .. } => !matches!(command, ContentCommand::Detail { .. }),
         ClientMsg::Avatar { .. }

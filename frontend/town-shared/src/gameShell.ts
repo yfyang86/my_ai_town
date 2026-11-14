@@ -4,6 +4,7 @@
 import { openRecords } from './shell/records'
 import './style.css'
 import { createGameAudio } from './audio/controller'
+import { createMusicPlayer } from './audio/player'
 import type { MusicWorld } from './audio/scene'
 import { createConnection, type ConnectionEvents, type GameConnection } from './connection'
 import { $, query } from './dom'
@@ -25,6 +26,7 @@ import { createTips } from './mobile/tips'
 import { trackMapInsets } from './mapView'
 import { onBack, systemBars } from './platform'
 import { useTownCreation } from './townWorldview'
+import { bindGameModeControls } from './gameModeControls'
 
 export function startGameShell(
   selectedMap: MapEntry,
@@ -123,6 +125,7 @@ export function startGameShell(
     listeners.signal
   )
   const tips = createTips(map)
+  bindGameModeControls($('map'), panels.worldSettings.controlGameMode, listeners.signal, replay)
   panels.registry.add(tips.panel)
   wireMap(map, panels, tips.picked)
   systemBars('paper')
@@ -210,6 +213,15 @@ export function startGameShell(
     avatar: panels.avatar,
   })
   back.front()
+  const musicPlayer = createMusicPlayer(audio.music, {
+    host: $('map'),
+    compactHost: document.querySelector<HTMLElement>('.mobile-dock') ?? undefined,
+    placement: 'game',
+    onOpen: () => {
+      menu.close()
+      panels.avatar.stopMoving()
+    },
+  })
   // 面板盖住地图的边变了：告诉镜头；盖得更多时，正在看的村民若被盖住就挪到露出来的那块
   trackMapInsets(
     $('map'),
@@ -242,6 +254,7 @@ export function startGameShell(
   return {
     dispose() {
       listeners.abort()
+      musicPlayer.dispose()
       chrome.dispose()
       back.dispose()
       offGuideBack()
