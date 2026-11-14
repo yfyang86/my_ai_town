@@ -72,7 +72,7 @@ The runtime tells the store every poll whether the resident is asleep. On waking
 2. **A dream is due** if at least six memories are new since the last dream. It is planned like a reflection round (same request kind, budget, retries, and the rule that unacknowledged notices come first) but with its own system prompt (`prompts/resident_dream.txt`), its own material — the sixteen most important new memories, with ids, plus the text of anything read — and a single tool, `dream`.
 3. The model returns up to four **insights** (each citing memory ids from the material), memories to **let go**, and a few sentences of **dream**. Insights become `Insight` records carrying the evidence's events and objects, so both word and object lookups find them. Let-go applies only to unprotected episodes from the material. The dream text is kept per day in `MemoryStore.dream.dreams` (last 30).
 
-The resident's agent view carries the five most recent dreams (`ResidentAgentView.dreams`); the info panel shows them under 「梦」.
+The resident's detail view (`ResidentDetailView.dreams`, sent only to a page that is watching that resident) carries the five most recent dreams; the info panel shows them under 「梦」.
 
 One dream per sleep. If the model does not deliver, that sleep's dream is dropped without counting as a reflection failure. A store that has never slept serialises exactly as before.
 

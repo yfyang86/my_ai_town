@@ -30,12 +30,13 @@ Requests carry a `request_id`; the receipt echoes it to the requester, and state
 | `agent_worker.rs`, `llm.rs` | Model transport, provider targets, built-in model routing |
 | `config.rs`, `application.rs`, `models.rs` | Providers, credentials, model settings |
 | `recording.rs`, `recording_commands.rs` | Broadcast recorder |
-| `story.rs` | Story editor step shared by both managers: outline → draft via the model, or tidy an edited draft. `rules: "srd5"` in the request asks for sheets, checks and encounters as well |
+| `story.rs` | Story editor step called by the manager: outline → draft via the model, or tidy an edited draft. `rules: "srd5"` in the request asks for sheets, checks and encounters as well |
 | `prompts.rs` | Prompt-tuning settings shared by all towns, stored as `prompts.json` beside the providers file: `read`, `write`, `preview` (the composed template for an unsaved tuning) and `try_character` (one model call, nothing saved). `story::draft` uses the saved story tuning, or `prompt` in the request for a trial; the in-game character generator reads the saved character tuning on every call |
-| `transcript.rs` | The town log: every broadcast passes through `Transcript::note`, which appends world events to `transcript/event.jsonl`, speeches to `chat.jsonl` and new roster thoughts to `thought.jsonl`; `ResidentDriver` copies each agent trace record to `trace.jsonl`. Always on when the world has a town folder; lines carry `kind`, wall time `at`, `world` id and sim `minutes`. `read` returns the raw files for the managers |
+| `transcript.rs` | The town log: every broadcast passes through `Transcript::note`, which appends world events to `transcript/event.jsonl`, speeches to `chat.jsonl` and new roster thoughts to `thought.jsonl`. Always on when the world has a town folder; lines carry `kind`, wall time `at`, `world` id and sim `minutes`. `read` returns those files plus, for `trace`, the agent trace from `agent_trace::recent` |
 | `narrator.rs` | One worker thread that asks a model for narrator rulings; `ResidentDriver::narrate` feeds it from `World::game_mode_rulings` each tick and returns answers through `World::game_mode_rule` |
 | `maps.rs` | Map validation |
-| `bin/town-map.rs` | One-shot worker used by the Node manager |
+| `bin/town-map.rs` | Validates one map document from stdin (map design scripts) |
+| `agent_trace.rs` | The agent trace log in the town's `logs/`: one file per run, rotated at 32 MB, at most 256 MB per town; full prompts only when the device's 「日志」 setting asks for them. `recent` returns the newest lines for the records download |
 
 ### Changing a world setting
 

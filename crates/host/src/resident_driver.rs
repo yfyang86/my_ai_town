@@ -32,8 +32,6 @@ pub(crate) struct ResidentDriver {
     pub mock: bool,
     /// 故事里的临场裁定（见 host::narrator）
     pub narrator: host::narrator::Narrator,
-    /// 记录：Agent 轨迹另抄一份进小镇目录
-    pub transcript: host::transcript::Transcript,
     pool: WorkerPool,
     /// 轨迹日志（host::agent_trace）：记不记完整题面由设定里的日志开关改
     pub trace: TraceLog,
@@ -103,7 +101,6 @@ impl ResidentDriver {
             target,
             mock: is_mock,
             narrator: Default::default(),
-            transcript: Default::default(),
             pool,
             trace,
         })

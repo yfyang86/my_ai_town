@@ -192,7 +192,7 @@ test('saved towns open in isolated worlds, come back after a restart, and are de
     const closed = (await m.api('')).towns.find((town) => town.id === a.id)
     assert.equal(closed.running, false)
     // 记录：世界进程写在小镇目录里的世界日志原样给回来（每行一条 JSON），只给要的种类
-    const record = await api(`/${a.id}/transcript?kinds=event,chat`)
+    const record = await m.api(`/${a.id}/transcript?kinds=event,chat`)
     assert.deepEqual(Object.keys(record.kinds).sort(), ['chat', 'event'])
     const logged = record.kinds.event
       .split('\n')

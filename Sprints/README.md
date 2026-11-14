@@ -52,3 +52,4 @@ An optional ruleset on the storyline mode, built from SRD 5.1. The plan, scope a
 | 14 | A half-finished game start resumes after a page reload | merged into `dev` |
 | 15 | Prompt tuning in settings: style modules, professional editing, test and compare | merged into `dev` |
 | 16 | 讲究一点 becomes the default story prompt | merged into `dev` |
+| 17 | Upstream 0.5.0 (`mewamew/my_ai_town`) cherry-picked: Rust-only manager, save and roster performance, trace limits, fixes | merged into `dev` |

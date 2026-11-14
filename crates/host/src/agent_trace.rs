@@ -236,6 +236,53 @@ struct TraceFile {
 }
 
 /// `resident-agent-<毫秒>-<进程号>.jsonl` 里的毫秒；不是这个格式的不算轨迹。
+/// 下载记录用：目录里的轨迹从旧到新连成一段（每行一条 JSON）。最多给 max_bytes：超了就只给最新的几份，
+/// 一份自己就超了的只给它末尾那一截（从一行的开头起）。目录不在就是空的。
+pub fn recent(dir: &Path, max_bytes: u64) -> std::io::Result<String> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) => return Err(error),
+    };
+    let mut files: Vec<(u128, PathBuf, u64)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let stamp = entry.file_name().to_str().and_then(stamp)?;
+            let meta = entry.metadata().ok().filter(|m| m.is_file())?;
+            Some((stamp, entry.path(), meta.len()))
+        })
+        .collect();
+    files.sort();
+    let mut left = max_bytes;
+    let mut picked = Vec::new();
+    for (_, path, bytes) in files.into_iter().rev() {
+        if left == 0 {
+            break;
+        }
+        picked.push(path);
+        left = left.saturating_sub(bytes);
+    }
+    let mut out = String::new();
+    for path in picked.into_iter().rev() {
+        let bytes = fs::read(&path)?;
+        let text = String::from_utf8_lossy(&bytes);
+        out.push_str(&text);
+        if !text.is_empty() && !text.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    if out.len() as u64 > max_bytes {
+        let cut = out.len() - max_bytes as usize;
+        // 按字节找：cut 可能落在一个字的中间，它之后头一个换行的下一个字节一定是一行（也是一个字）的开头
+        let start = out.as_bytes()[cut..]
+            .iter()
+            .position(|b| *b == b'\n')
+            .map_or(out.len(), |i| cut + i + 1);
+        out = out.split_off(start);
+    }
+    Ok(out)
+}
+
 fn stamp(name: &str) -> Option<u128> {
     let (ms, pid) = name
         .strip_prefix(PREFIX)?

@@ -192,7 +192,7 @@ fn build_runtime(
     world.bind_weather_world(&population.world_id);
     let world_settings = saved.world_settings;
     let settings = Settings::load(app)?;
-    let mut driver = start_driver(
+    let driver = start_driver(
         &mut world,
         &population,
         &world_settings,
@@ -203,12 +203,11 @@ fn build_runtime(
     // 管理服务给了共用村民库就用它，顺便把旧版存在各小镇目录里的模板收进来；
     // 单独运行（没有管理服务）时放在存档旁边
     let town_dir = store.as_ref().and_then(|s| s.path().parent());
-    // 记录（台词、想法、世界日志、Agent 轨迹）跟着小镇目录走；村民驱动抄轨迹用同一份
+    // 记录（台词、想法、世界日志）跟着小镇目录走
     let transcript = host::transcript::Transcript::default();
     if let Some(dir) = town_dir {
         transcript.open(dir, &population.world_id);
     }
-    driver.transcript = transcript.clone();
     let reels = town_dir.map(|dir| recording_commands::ReelSource {
         town_dir: dir.to_path_buf(),
         town_id: args.town_id.clone(),
