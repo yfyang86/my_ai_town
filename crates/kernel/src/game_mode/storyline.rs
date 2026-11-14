@@ -34,6 +34,8 @@ const SCENE_MINUTES: std::ops::RangeInclusive<u32> = 1..=120;
 const SCENE_CHARS: std::ops::RangeInclusive<u32> = 20..=600;
 /// 宣布里程碑时写的经过、交动作时写的理由最多多少字
 const EVIDENCE_CHARS: usize = 200;
+/// 最后一个节拍过了以后、离收场不到这么久（游戏分钟）时提醒一遍：还有只能由自己宣布的里程碑的人，各自被单独叫到
+const LAST_CALL_MINUTES: f64 = 120.0;
 /// 主持人裁定时能选的难度
 const RULING_DCS: [u32; 5] = [5, 10, 15, 20, 25];
 /// 一个人每个游戏小时最多请主持人裁定几件事
@@ -381,6 +383,9 @@ pub struct Storyline {
     pub reached: BTreeMap<String, Reached>,
     #[serde(default)]
     pub ended: bool,
+    /// 收场前的提醒叫过了（见 last_call）
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub last_call: bool,
     /// 开着的规则套件（角色卡、骰子、检定的经过）；没开时存档里没有这一项
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<Srd5>,
@@ -466,6 +471,7 @@ impl Storyline {
             lines: Vec::new(),
             reached: BTreeMap::new(),
             ended: false,
+            last_call: false,
             rules,
         })
     }
@@ -695,8 +701,13 @@ impl Storyline {
             .filter(|n| !n.is_empty())
             .map(|n| format!("（{n}）"))
             .unwrap_or_default();
+        // 这件事做成了没有：做成了的顺带提醒一句能宣布的里程碑
+        let mut done = false;
         let outcome = match ruling.kind {
-            RulingKind::Auto => format!("不用掷骰，做到了{note}"),
+            RulingKind::Auto => {
+                done = true;
+                format!("不用掷骰，做到了{note}")
+            }
             RulingKind::Impossible => format!("做不到{note}"),
             RulingKind::Roll => {
                 let way = CheckWay {
@@ -721,6 +732,7 @@ impl Storyline {
                 let (short, cut) = clip(&ask.text, ASK_TITLE_CHARS);
                 let what = format!("临场：{short}{}", if cut { "…" } else { "" });
                 let roll = rules.improvise(seat, &what, &way, dc, ruling.edge, now);
+                done = roll.success == Some(true);
                 let thrown = match ruling.edge {
                     Some(Edge::Advantage) => {
                         format!(
@@ -758,6 +770,11 @@ impl Storyline {
         self.tell(world, &self.everyone(), &line);
         world.log(EventInfo::default(), line.clone());
         self.call(world, seat, &line);
+        if done {
+            if let Some(hint) = self.declare_hint(seat) {
+                self.tell(world, &[seat], &hint);
+            }
+        }
         Ok(outcome)
     }
 
@@ -999,11 +1016,57 @@ impl Storyline {
             self.fire(world, i);
             return true;
         }
+        // 节拍都过了、快收场了：还握着只能由自己宣布的里程碑的人各提醒一遍
+        if !self.last_call {
+            if now < self.last_call_at() {
+                return false;
+            }
+            self.remind_to_declare(world);
+            return true;
+        }
         if now < self.end_at() {
             return false;
         }
         self.finish(world);
         true
+    }
+
+    fn last_call_at(&self) -> f64 {
+        self.end_at() - LAST_CALL_MINUTES
+    }
+
+    /// 收场前的提醒：由当事人自己宣布的里程碑，没人宣布就一直不算。模型常常事情做了却忘了宣布，
+    /// 所以快收场时把还能宣布的那几项单独告诉本人一遍、叫醒他；宣不宣布还是他自己定。别人听不到。
+    fn remind_to_declare(&mut self, world: &mut World) {
+        self.last_call = true;
+        let left = (self.end_at() - world.minutes()).max(0.0).round();
+        for i in 0..self.seats.len() {
+            let mine: Vec<String> = self
+                .declarable(i)
+                .iter()
+                .map(|m| {
+                    format!(
+                        "「{}」（编号 {}）：{}",
+                        m.title.trim(),
+                        m.id,
+                        m.detail.trim()
+                    )
+                })
+                .collect();
+            if mine.is_empty() || !self.here(world, i) {
+                continue;
+            }
+            let text = format!(
+                "{}故事还有 {left} 分钟收场。下面的事只有你能宣布，没人宣布就不算发生过：{}。\
+用 mode_action 交 declare（target 填编号，text 写一句经过）就是当众把它定下来——\
+本来就是要你当众说一句、表个态的事，交 declare 就是说这句话，不用另外再试；\
+要先做成一件事的，做成了马上交，还差一步就先去做完；没成、也来不及成的不要交。",
+                self.tag(),
+                mine.join("；")
+            );
+            self.tell(world, &[i], &text);
+            self.call(world, i, &text);
+        }
     }
 
     /// 不在了的人：记下来；正轮到他说话就马上往下走。
@@ -1054,6 +1117,23 @@ impl Storyline {
                 matches!(&m.when, StorylineWhen::Declare { seats } if self.among(seats).contains(&i))
             })
             .collect()
+    }
+
+    /// 事情做成了以后顺带提一句：手里还有能宣布的里程碑，这件事要是就是其中一项，接着宣布。
+    /// 模型做成了事常常忘了宣布，里程碑就一直空着。
+    fn declare_hint(&self, i: usize) -> Option<String> {
+        let mine: Vec<String> = self
+            .declarable(i)
+            .iter()
+            .map(|m| format!("「{}」（编号 {}）", m.title.trim(), m.id))
+            .collect();
+        (!mine.is_empty()).then(|| {
+            format!(
+                "{}你手里还有只有你能宣布的事：{}。刚才这件事要是就让其中一项成了，接着用 mode_action 交 declare（target 填编号），不宣布不算。",
+                self.tag(),
+                mine.join("、")
+            )
+        })
     }
 
     /// 此刻该做什么
@@ -1428,6 +1508,9 @@ impl Storyline {
         world.log(EventInfo::default(), line);
         if passed {
             self.pass(world, &check.id, i);
+            if let Some(hint) = self.declare_hint(i) {
+                self.tell(world, &[i], &hint);
+            }
         }
         Ok(outcome)
     }
@@ -2120,6 +2203,7 @@ impl Rules for Storyline {
             _ if self.fighting() => self.rules.as_ref().map_or(now, |r| r.fight_until),
             Some(scene) => scene.until,
             None if self.next < self.script.beats.len() => self.beat_at(self.next),
+            None if !self.last_call => self.last_call_at(),
             None => self.end_at(),
         };
         let wait = (due - now).max(0.0);
