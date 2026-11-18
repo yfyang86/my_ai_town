@@ -5,6 +5,7 @@ import { storylineMusic } from './storyline'
 import { swordholderMusic } from './swordholder'
 import { tideMusic } from './tide'
 import { werewolfMusic } from './werewolf'
+import { frostlightMusic } from './frostlight'
 
 // 玩法的音乐：名册来一拍，把玩法此刻的状态交给它，它说该放哪一格、这一拍要不要响短提示。
 // 选曲把它排在剧情之下、天气之上；它说 null 时交给天气和时段。
@@ -32,4 +33,5 @@ export const GAME_MODE_MUSIC: { [K in GameModeId]: GameModeMusic<K> } = {
   werewolf: werewolfMusic,
   swordholder: swordholderMusic,
   storyline: storylineMusic,
+  frostlight: frostlightMusic,
 }

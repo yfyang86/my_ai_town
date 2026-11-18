@@ -7,6 +7,7 @@ import {
   needsKey,
   providerModel,
   providerRow,
+  rememberProviderModel,
 } from '../providers'
 import type { SettingsPage } from '../settingsCenter'
 import { $, type PageDeps } from './page'
@@ -134,8 +135,12 @@ export function createModelPage(deps: PageDeps): SettingsPage {
         provider: sel.value,
         model: model.value.trim(),
       }
-      // providers 原样保留（连同各服务记着的模型名），只改 active；密钥不碰
-      const providers = configured.map(providerRow)
+      // 其他服务原样保留；手填的新模型同时存进这个服务的候选，密钥不碰
+      const providers = configured.map((provider) =>
+        provider.id === choice.provider
+          ? rememberProviderModel(providerRow(provider), choice.model)
+          : providerRow(provider)
+      )
       // 先写「保存中…」：没连上时回执立刻回来，结果不能被它盖掉
       setStatus('保存中…')
       deps.save(

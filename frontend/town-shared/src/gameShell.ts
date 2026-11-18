@@ -4,6 +4,7 @@
 import { openRecords } from './shell/records'
 import './style.css'
 import { createGameAudio } from './audio/controller'
+import { createMusicPlayer } from './audio/player'
 import type { MusicWorld } from './audio/scene'
 import { createConnection, type ConnectionEvents, type GameConnection } from './connection'
 import { $, query } from './dom'
@@ -13,6 +14,7 @@ import type { MapEntry, Topology } from './mapDocument'
 import { installLayout } from './shell/layout'
 import { createPanels, type Panels } from './shell/panels'
 import { createReconnectHint } from './shell/reconnect'
+import { installFirstRun } from './shell/firstRun'
 import { createGameMenu } from './shell/menu'
 import { installMapButtons, showConnection } from './shell/topbar'
 import { reopenTown } from './townApi'
@@ -25,6 +27,7 @@ import { createTips } from './mobile/tips'
 import { trackMapInsets } from './mapView'
 import { onBack, systemBars } from './platform'
 import { useTownCreation } from './townWorldview'
+import { bindGameModeControls } from './gameModeControls'
 
 export function startGameShell(
   selectedMap: MapEntry,
@@ -123,6 +126,7 @@ export function startGameShell(
     listeners.signal
   )
   const tips = createTips(map)
+  bindGameModeControls($('map'), panels.worldSettings.controlGameMode, listeners.signal, replay)
   panels.registry.add(tips.panel)
   wireMap(map, panels, tips.picked)
   systemBars('paper')
@@ -165,23 +169,11 @@ export function startGameShell(
   panels.models.subscribe(prefabSetup.refresh)
   // 回来的玩家（向导已走过）直接从手势提示开始；看过的提示不会再出
   if (guideDone()) tips.start()
-  let guideOpened = false
-  // 每个新世界（还没设世界观）都走向导：第一次从头讲起，以后从「请居民」开始；预制小镇走开局设置
-  panels.worldSettings.setFirstRun(() => {
-    if (!guideOpened) {
-      guideOpened = true
-      // 重置了世界（世界观面板已随重置关上）；开着整页设定时也先回到地图，向导走完正好看到新来的人
-      if (panels.session.inSettings()) panels.session.exit()
-      if (prefab) prefabSetup.open(prefab)
-      else guide.open(guideDone() ? 2 : 0)
-    }
-    return true
-  })
-  // 开局做到一半页面刷新了：世界观已经写好，上面那条路不会再走。玩法还没打开、又记着这个世界的进度，就接着开局设置
-  panels.worldSettings.subscribe(() => {
-    const world = panels.worldSettings.state()
-    if (prefab && !guideOpened && world?.ready && !world.game_mode)
-      guideOpened = prefabSetup.resume(prefab)
+  installFirstRun(panels.worldSettings, () => {
+    // 重置后回到地图，向导走完正好看到新来的人。
+    if (panels.session.inSettings()) panels.session.exit()
+    if (prefab) prefabSetup.open(prefab)
+    else guide.open(guideDone() ? 2 : 0)
   })
   const resetTips = () => {
     tips.reset()
@@ -210,6 +202,15 @@ export function startGameShell(
     avatar: panels.avatar,
   })
   back.front()
+  const musicPlayer = createMusicPlayer(audio.music, {
+    host: $('map'),
+    compactHost: document.querySelector<HTMLElement>('.mobile-dock') ?? undefined,
+    placement: 'game',
+    onOpen: () => {
+      menu.close()
+      panels.avatar.stopMoving()
+    },
+  })
   // 面板盖住地图的边变了：告诉镜头；盖得更多时，正在看的村民若被盖住就挪到露出来的那块
   trackMapInsets(
     $('map'),
@@ -242,6 +243,7 @@ export function startGameShell(
   return {
     dispose() {
       listeners.abort()
+      musicPlayer.dispose()
       chrome.dispose()
       back.dispose()
       offGuideBack()

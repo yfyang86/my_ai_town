@@ -80,6 +80,19 @@ pub enum ClientMsg {
         offset: usize,
     },
     GetWorldSettings,
+    BeginPrefabSetup {
+        request_id: String,
+        world_id: String,
+        setup_id: String,
+        expected_revision: u64,
+        plan: crate::PrefabSetupPlan,
+    },
+    AdvancePrefabSetup {
+        request_id: String,
+        world_id: String,
+        setup_id: String,
+        next_step: usize,
+    },
     SetWorldview {
         request_id: String,
         world_id: String,
@@ -136,6 +149,13 @@ pub enum ClientMsg {
         world_id: String,
         #[serde(default)]
         game_mode: Option<crate::GameModeChoice>,
+    },
+    /// 玩家管理正在进行的玩法；与居民的 mode_action 分开鉴权和结算。
+    /// 回 WorldSettingsSaved，成功后广播名册；不打开新玩法，也不冒充居民。
+    GameModeControl {
+        request_id: String,
+        world_id: String,
+        command: crate::GameModeAction,
     },
     GetProps,
     Content {
@@ -366,6 +386,8 @@ impl ClientMsg {
             SetWeather { request_id, .. }
             | Avatar { request_id, .. }
             | GetChatHistory { request_id, .. }
+            | BeginPrefabSetup { request_id, .. }
+            | AdvancePrefabSetup { request_id, .. }
             | SetWorldview { request_id, .. }
             | SetPhysiology { request_id, .. }
             | SetClimate { request_id, .. }
@@ -374,6 +396,7 @@ impl ClientMsg {
             | DeleteRecording { request_id, .. }
             | SetStrangers { request_id, .. }
             | SetGameMode { request_id, .. }
+            | GameModeControl { request_id, .. }
             | Content { request_id, .. }
             | ValidateProp { request_id, .. }
             | SaveProp { request_id, .. }

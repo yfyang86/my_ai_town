@@ -1380,6 +1380,46 @@ body.resizing-column {
 .prov-field input {
   min-width: 0;
 }
+.p-added-models,
+.p-add-field,
+.p-add-row {
+  grid-column: 1 / -1;
+}
+.p-added-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.p-added-models[hidden] {
+  display: none;
+}
+.p-added-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 6px 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--card);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.prov-form button.p-remove-model {
+  min-height: 24px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-size: 11px;
+}
+.p-add-row {
+  display: flex;
+  gap: 8px;
+}
+.p-add-row input {
+  flex: 1;
+}
 .prov-form .p-test-status {
   grid-column: 1 / -1;
   margin-top: 0;

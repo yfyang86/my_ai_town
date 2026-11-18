@@ -28,6 +28,9 @@ pub struct ProviderConfigMsg {
     /// 没填过的为空；页面整表保存时原样带回来，只改别处时不会丢。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
+    /// 玩家另外添加的模型名；预置目录在客户端，这里只存玩家加的候选。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
 }
 
 /// 密钥提交（仅客户端→服务端；空串 = 删除该服务商的密钥）
@@ -48,4 +51,7 @@ pub struct ProviderView {
     /// 这个服务记着的模型名（见 ProviderConfigMsg::model）；没填过为空串
     #[serde(default)]
     pub model: String,
+    /// 玩家另外添加的模型候选（见 ProviderConfigMsg::models）
+    #[serde(default)]
+    pub models: Vec<String>,
 }

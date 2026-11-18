@@ -52,4 +52,4 @@ Long work runs on `self.tasks` (a small thread pool) and replies only to the req
 
 ### Providers
 
-`config/providers.json` holds `{active: {provider, model, resident}, providers: [{id, name, base_url}]}`; keys live in `credentials.json` (mode 0600, ignored by git). Transport is OpenAI-compatible `POST {base_url}/chat/completions`. `--mock-llm` replaces the model with a script for tests.
+`config/providers.json` holds `{active: {provider, model}, providers: [{id, name, base_url, model, models}]}`. `model` is the provider's default and `models` contains user-added candidates; built-in presets live in `frontend/town-shared/src/providers.ts`. Old configurations without `model` or `models` still load. Keys live in `credentials.json` (mode 0600, ignored by git). Transport is OpenAI-compatible `POST {base_url}/chat/completions`. `--mock-llm` replaces the model with a script for tests.

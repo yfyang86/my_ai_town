@@ -22,6 +22,7 @@ pub fn views(
         base_url: String::new(),
         key_mask: String::new(),
         model: String::new(),
+        models: Vec::new(),
     });
     // 早先的安卓测试包把一条地址固定的 builtin 写进过配置：一律以应用自带的为准
     file.providers
@@ -36,6 +37,7 @@ pub fn views(
                 .map(|k| config::mask(k))
                 .unwrap_or_default(),
             model: p.model.clone(),
+            models: p.models.clone(),
         })
         .chain(builtin)
         .collect()

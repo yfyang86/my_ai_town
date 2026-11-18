@@ -9,6 +9,7 @@
 //! `World::set_game_mode` 里各加一项，协议那边在 protocol 的 game_mode 里加对应的类型。
 mod combat;
 mod dice;
+mod frostlight;
 mod srd5;
 mod storyline;
 mod swordholder;
@@ -64,6 +65,14 @@ trait Rules {
     fn takes_params(&self) -> bool {
         false
     }
+    /// 玩家对整场玩法的管理指令，和居民的选择分开授权。
+    fn control(&mut self, _world: &mut World, _action: &GameModeAction) -> Result<String> {
+        Err(KernelError::action("这个玩法没有玩家管理指令"))
+    }
+    /// 玩法安排了真实身体动作时，Agent 沿用动作工具的等待和完成回执。
+    fn pending_group(&self, _world: &World, _actor: &str) -> Option<String> {
+        None
+    }
     /// 有人对人动了手（推搡、抢、偷、搜身、拿道具伤人），text 是一句写好的经过，
     /// 比如「骆川用鱼叉刺白鸦，健康 −40」；玩法可以记进自己的战报。
     fn clash(&mut self, _world: &World, _actor: &str, _target: &str, _text: &str) {}
@@ -105,6 +114,7 @@ pub fn check_sheet(sheet: &protocol::Srd5Sheet) -> Result<()> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GameMode {
+    Frostlight(frostlight::Frostlight),
     Tide(tide::Tide),
     Werewolf(werewolf::Werewolf),
     Swordholder(swordholder::Swordholder),
@@ -115,6 +125,7 @@ pub enum GameMode {
 macro_rules! each {
     ($mode:expr, $m:ident => $body:expr) => {
         match $mode {
+            GameMode::Frostlight($m) => $body,
             GameMode::Tide($m) => $body,
             GameMode::Werewolf($m) => $body,
             GameMode::Swordholder($m) => $body,
@@ -142,6 +153,10 @@ impl World {
         let same = matches!(
             (choice, &self.game_mode),
             (GameModeChoice::Tide { .. }, Some(GameMode::Tide(_)))
+                | (
+                    GameModeChoice::Frostlight { .. },
+                    Some(GameMode::Frostlight(_))
+                )
                 | (GameModeChoice::Werewolf { .. }, Some(GameMode::Werewolf(_)))
                 | (
                     GameModeChoice::Swordholder { .. },
@@ -157,6 +172,14 @@ impl World {
         }
         // 先建好新玩法再换上：打不开时原来的玩法不受影响
         let mode = match choice {
+            GameModeChoice::Frostlight {
+                seed,
+                duration_hours,
+            } => GameMode::Frostlight(frostlight::Frostlight::open(
+                self,
+                seed.unwrap_or(1).max(1),
+                *duration_hours,
+            )?),
             GameModeChoice::Tide { seed } => {
                 GameMode::Tide(tide::Tide::open(self, seed.unwrap_or(1).max(1))?)
             }
@@ -266,6 +289,16 @@ impl World {
         result
     }
 
+    /// 玩家对整场玩法的管理指令（见 `Rules::control`）
+    pub fn game_mode_control(&mut self, action: &GameModeAction) -> Result<String> {
+        let Some(mut mode) = self.game_mode.take() else {
+            return Err(KernelError::action("现在没有开着的玩法"));
+        };
+        let result = each!(&mut mode, m => m.control(self, action));
+        self.game_mode = Some(mode);
+        result
+    }
+
     /// 村民排进一组动作之前问开着的玩法让不让（见 `Rules::judge`）；有一件不让，整组都不排。
     pub(crate) fn game_mode_judge(&self, actor: &str, drafts: &[ActionDraft]) -> Result<()> {
         let Some(g) = &self.game_mode else {
@@ -281,6 +314,13 @@ impl World {
         self.game_mode
             .as_ref()
             .is_some_and(|g| each!(g, m => m.takes_params()))
+    }
+
+    /// 玩法替这个人排的动作组（见 `Rules::pending_group`）
+    pub fn game_mode_pending_group(&self, actor: &str) -> Option<String> {
+        self.game_mode
+            .as_ref()
+            .and_then(|g| each!(g, m => m.pending_group(self, actor)))
     }
 
     /// 有人对人动了手：告诉开着的玩法（见 `Rules::clash`）。

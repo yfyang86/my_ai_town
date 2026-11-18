@@ -296,8 +296,10 @@ export interface ProviderView {
   name: string
   base_url: string
   key_mask: string
-  /** 「模型服务」里给这个服务填的模型名，选这个服务时自动填上；没填过为空串 */
+  /** 「模型服务」里给这个服务填的默认模型名，选这个服务时自动填上；没填过为空串 */
   model: string
+  /** 玩家另外添加的模型候选；旧服务端没有回传时按空表处理 */
+  models?: string[]
 }
 /** 外观：地图上的区分标记和像素小人的长相，旧存档可带形象编号 */
 export interface Appearance {
@@ -616,6 +618,44 @@ export interface PhysiologySwitches {
 }
 /** 气候：温带照天气规则的转移表；热带不下雪，转到雷暴的机会减半，淋雨湿得慢一半 */
 export type Climate = 'temperate' | 'tropical'
+/** 选择和执行计划随世界保存；恢复时不重新生成道具、居民或玩法配置。 */
+export interface PrefabSetupSelection {
+  players: number
+  models: (ModelChoice | null)[]
+  needs: boolean
+  picks: [string, string][]
+  seeds: [string, number][]
+  /** 开局前改过的规则项和人物，没改过就没有 */
+  rules?: [string, number | boolean][]
+  personas?: [number, Record<string, unknown>][]
+}
+export type PrefabSetupStep =
+  | { kind: 'worldview'; text: string }
+  | { kind: 'physiology'; switches: PhysiologySwitches }
+  | { kind: 'climate'; climate: Climate }
+  | { kind: 'weather'; weather: WeatherKind }
+  | { kind: 'remove_prop'; id: string }
+  | { kind: 'place_prop'; instance: Instance; near?: { space: string; position: [number, number] } }
+  | { kind: 'limits'; limits: Partial<AgentLimits> }
+  | {
+      kind: 'join'
+      template_id: string
+      model?: ModelChoice
+      persona?: Omit<TemplateFields, 'appearance'> & { appearance?: Appearance }
+      look?: VillagerLook
+    }
+  | { kind: 'game_mode'; choice: GameModeChoice }
+export interface PrefabSetupPlan {
+  prefab: string
+  selection: PrefabSetupSelection
+  steps: PrefabSetupStep[]
+}
+export interface PrefabSetupState {
+  id: string
+  plan: PrefabSetupPlan
+  next_step: number
+  joined: string[]
+}
 export interface WorldSettingsState {
   world_id: string
   revision: number
@@ -638,6 +678,7 @@ export interface WorldSettingsState {
   strangers: boolean
   /** 开着的玩法（如 'tide'）；没开时没有这一项。随存档保存 */
   game_mode?: GameModeId
+  prefab_setup?: PrefabSetupState
 }
 
 /** 录下来的一卷：从开始录到停的一段。现实时刻是 Unix 毫秒，小镇时间写成时钟 */
@@ -661,6 +702,7 @@ export type GameModeView =
   | ({ kind: 'werewolf' } & WerewolfView)
   | ({ kind: 'swordholder' } & SwordholderView)
   | ({ kind: 'storyline' } & StorylineView)
+  | ({ kind: 'frostlight' } & FrostlightView)
 /** 打开哪个玩法、带什么设置；set_game_mode 不带它就是关掉 */
 export type GameModeChoice =
   | { kind: 'tide'; seed?: number }
@@ -670,6 +712,78 @@ export type GameModeChoice =
   | { kind: 'swordholder'; seed?: number; day_hours?: number; rules?: SwordholderRules }
   /** 故事模式：整本剧本带进来；ruleset 是可选的规则套件（角色卡、检定……） */
   | { kind: 'storyline'; seed?: number; script: StorylineScript; ruleset?: RulesetChoice }
+  | { kind: 'frostlight'; seed?: number; duration_hours?: number }
+
+export interface GameModeAction {
+  action: string
+  target?: string
+  text?: string
+  reason?: string
+  /** 另带的参数（开着的玩法要才有）：故事模式规则套件里的 skill、move、spell…… */
+  with?: Record<string, string>
+}
+export type FrostlightPhase = 'preparation' | 'cold' | 'storm' | 'over'
+export interface FrostlightPolicies {
+  extended_shift: boolean
+  soup: boolean
+  mutual_aid: boolean
+}
+export interface FrostlightStation {
+  id: string
+  name: string
+  locale: string
+  available: number
+}
+export interface FrostlightWork {
+  kind: string
+  locale: string
+  ends_at: number
+}
+export interface FrostlightPerson {
+  id: string
+  name: string
+  role: string
+  contribution: number
+  work?: FrostlightWork
+  gone: boolean
+}
+export interface FrostlightNews {
+  at: number
+  text: string
+}
+export interface FrostlightEnding {
+  kind: string
+  title: string
+  text: string
+  survivors: number
+}
+export interface FrostlightView {
+  phase: FrostlightPhase
+  now: number
+  until: number
+  storm_at: number
+  ends_at: number
+  temperature: number
+  shelter_temperature: number
+  cold_minutes: number
+  hunger_minutes: number
+  unrest_minutes: number
+  fuel: number
+  food: number
+  materials: number
+  heat: number
+  stress: number
+  hope: number
+  discontent: number
+  insulation: number
+  generator: string
+  stations: FrostlightStation[]
+  policies: FrostlightPolicies
+  aid_used: boolean
+  people: FrostlightPerson[]
+  news: FrostlightNews[]
+  ending?: FrostlightEnding
+}
 
 /** 潮水圈里的一个圈：圆心和半径都是行走地图上的米（x 和地面上的 z） */
 export interface TideCircle {
@@ -1119,6 +1233,13 @@ export type ServerMsg =
       environment: WeatherView | null
     }
   | { type: 'world_settings'; state: WorldSettingsState }
+  | {
+      type: 'prefab_setup_saved'
+      request_id: string
+      ok: boolean
+      message: string
+      state: PrefabSetupState | null
+    }
   | { type: 'world_settings_saved'; request_id: string; ok: boolean; message: string }
   | { type: 'props'; catalog: PropCatalog }
   | {
@@ -1264,8 +1385,10 @@ export interface ProviderConfig {
   id: string
   name: string
   base_url: string
-  /** 这个服务记着的模型名；整表保存时要原样带回去，不带等于清掉 */
+  /** 这个服务记着的默认模型名；整表保存时要原样带回去，不带等于清掉 */
   model?: string
+  /** 玩家另外添加的模型候选；整表保存时同样原样带回 */
+  models?: string[]
 }
 export type ClientMsg =
   | {
@@ -1311,6 +1434,21 @@ export type ClientMsg =
     }
   | { type: 'get_world_settings' }
   | {
+      type: 'begin_prefab_setup'
+      request_id: string
+      world_id: string
+      setup_id: string
+      expected_revision: number
+      plan: PrefabSetupPlan
+    }
+  | {
+      type: 'advance_prefab_setup'
+      request_id: string
+      world_id: string
+      setup_id: string
+      next_step: number
+    }
+  | {
       type: 'set_worldview'
       request_id: string
       world_id: string
@@ -1340,6 +1478,12 @@ export type ClientMsg =
       request_id: string
       world_id: string
       game_mode?: GameModeChoice | null
+    }
+  | {
+      type: 'game_mode_control'
+      request_id: string
+      world_id: string
+      command: GameModeAction
     }
   | { type: 'get_props' }
   | {

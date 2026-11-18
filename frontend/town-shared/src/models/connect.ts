@@ -1,13 +1,15 @@
 // 连接模型的弹层：选一个模型服务、填密钥，测试连通后保存。首页的「设定」和提示卡、小镇里写世界观时
 // 和点「开始」时都用它；首页经管理服务的 /api/towns/models，小镇里经世界连接，由 transport 决定。
 // 手机上从底部升起，电脑上居中。它是模态对话框，从别的对话框里打开也盖在最上面。
-// 有默认模型的服务可以直接连；要手填模型名、地址的服务进小镇后在「设定 · 模型服务」里配。
+// 模型可以直接选，也可以输入服务商新发布的模型 ID；自定义服务地址进小镇后在「设定 · 模型服务」里配。
 import type { ActiveModelChoice, ProviderConfig, ProviderView } from '../protocol'
 import {
   PRESETS,
   localEndpoint,
+  modelCandidates,
   providerModel,
   providerRow,
+  rememberProviderModel,
   type ProviderPreset,
 } from '../providers'
 import { hourRange, priceOf } from '../pricing'
@@ -121,6 +123,15 @@ export function connectModel(
     dialog.setAttribute('aria-label', o.title)
     const body = el('div', '', 'mc-body')
     const grid = el('div', '', 'mc-providers')
+    const model = el('input', '', 'mc-key')
+    model.spellcheck = false
+    model.autocomplete = 'off'
+    model.setAttribute('autocapitalize', 'off')
+    const modelList = el('datalist', '', 'mc-model-list')
+    modelList.id = 'mc-model-list'
+    model.setAttribute('list', modelList.id)
+    const modelField = el('label', '', 'mc-field')
+    modelField.append(el('span', '模型 ID（可输入新的模型名）'), model, modelList)
     const key = el('input', '', 'mc-key')
     key.type = 'text'
     key.autocomplete = 'off'
@@ -146,6 +157,7 @@ export function connectModel(
       heading,
       el('p', o.text, 'mc-text'),
       grid,
+      modelField,
       field,
       status,
       help,
@@ -154,6 +166,14 @@ export function connectModel(
     dialog.append(body)
 
     const configured = () => t.config()?.providers.find((p) => p.id === preset.id)
+    function fillModels() {
+      modelList.replaceChildren(
+        ...modelCandidates(preset.id, configured()).map((name) => new Option(name))
+      )
+    }
+    model.value = providerModel(preset.id, configured(), t.config()?.active)
+    fillModels()
+
     function render() {
       const shown = more ? presets : presets.slice(0, FIRST)
       grid.replaceChildren(
@@ -164,10 +184,13 @@ export function connectModel(
               preset = p
               state = 'idle'
               key.value = ''
+              model.value = providerModel(preset.id, configured(), t.config()?.active)
+              fillModels()
               render()
             },
             'mc-provider' + (p === preset ? ' on' : '')
           )
+          b.disabled = state === 'testing'
           const name = el('b', p.name)
           if (p.id === 'deepseek') name.append(el('span', '推荐', 'ui-chip ok'))
           const saved = t.config()?.providers.find((c) => c.id === p.id)?.key_mask
@@ -178,20 +201,21 @@ export function connectModel(
       )
       if (!more) {
         const rest = presets.slice(FIRST).map((p) => p.name)
-        grid.append(
-          button(
-            `更多服务：${rest.join('、')} ▾`,
-            () => {
-              more = true
-              render()
-            },
-            'mc-more'
-          )
+        const moreButton = button(
+          `更多服务：${rest.join('、')} ▾`,
+          () => {
+            more = true
+            render()
+          },
+          'mc-more'
         )
+        moreButton.disabled = state === 'testing'
+        grid.append(moreButton)
       }
       const saved = configured()?.key_mask
       keyName.textContent = `${preset.name} 的密钥`
       key.placeholder = saved ? `已保存 ${saved}，留空就用它` : keyPlaceholder(preset)
+      model.disabled = key.disabled = state === 'testing'
       help.replaceChildren(...keyHelp(preset))
       status.replaceChildren(
         state === 'testing'
@@ -204,7 +228,7 @@ export function connectModel(
       confirm.textContent = state === 'testing' ? '正在连接…' : o.confirm
     }
 
-    // 先测通再存：服务、密钥一起写进配置；还没有建镇用的模型时顺便用它
+    // 先测通再存：服务、模型、密钥一起写进配置；还没有建镇用的模型时顺便用它
     async function connect() {
       const config = t.config()
       const existing = configured()
@@ -216,23 +240,31 @@ export function connectModel(
         key.focus()
         return
       }
-      const provider: ProviderConfig = {
+      const chosenModel = model.value.trim()
+      if (!chosenModel) {
+        state = 'error'
+        message = '先填上模型 ID'
+        render()
+        model.focus()
+        return
+      }
+      const base: ProviderConfig = {
         id: preset.id,
         name: existing?.name ?? preset.name,
         base_url: existing?.base_url || preset.baseUrl,
-        ...(existing?.model ? { model: existing.model } : {}),
+        ...(existing?.models?.length ? { models: existing.models } : {}),
       }
-      const model = providerModel(preset.id, existing, config?.active)
+      const provider = rememberProviderModel(base, chosenModel)
       state = 'testing'
       render()
       try {
-        const tested = await t.test(provider, model, typed)
+        const tested = await t.test(provider, chosenModel, typed)
         if (!tested.ok) throw Error(tested.message || '连接失败')
         const all = (config?.providers ?? []).map((p) =>
           p.id === provider.id ? provider : providerRow(p)
         )
         await t.save({
-          active: config?.active ?? { provider: provider.id, model },
+          active: config?.active ?? { provider: provider.id, model: chosenModel },
           providers: existing ? all : [...all, provider],
           keys: typed ? [{ provider: provider.id, api_key: typed }] : [],
         })

@@ -172,7 +172,12 @@ function storedYaw() {
 
 /** WebGL 渲染器：像素风不抗锯齿，开阴影和色调映射；画布垫在 SVG 下面 */
 function createRenderer(container: HTMLElement, svg: SVGSVGElement) {
-  const renderer = new THREE.WebGLRenderer({ antialias: false })
+  // HD-2D 的阴影和后期需要高性能 GPU；默认偏好可能让双显卡电脑选中核显。
+  // 这是 WebGL 标准提示，最终选择仍由浏览器、驱动和系统策略决定，不禁用兼容性回退。
+  const renderer = new THREE.WebGLRenderer({
+    antialias: false,
+    powerPreference: 'high-performance',
+  })
   const canvas = renderer.domElement
   canvas.className = 'hd2d-canvas'
   renderer.setPixelRatio(Math.min(devicePixelRatio, pixelRatioCap(effectiveQuality())))
@@ -363,6 +368,8 @@ export class HdScene {
   private readonly viewTarget = new THREE.Vector3()
   /** 地面材质：烘好遮蔽图后接上 */
   private landMaterial: THREE.MeshPhongMaterial | null = null
+  /** 地图可选的清扫/压实路面积雪图，尺寸与地面贴图一致。 */
+  private groundSnowMap: THREE.DataTexture | undefined
   /** 树根、灯杆、地标脚下的接触阴影，最后和房子一起烘进地面遮蔽图 */
   private readonly contacts: Contact[] = []
   /** 外圈（干海床、冰原）上散落的东西摆在哪（地图坐标）：要秃鹫的风格在这上面挑几处盘旋 */
@@ -928,10 +935,10 @@ export class HdScene {
   }
 
   /** 会被雨打湿的面：高光随湿度变，另外补上积雪和云影 */
-  private wettable(material: THREE.MeshPhongMaterial) {
+  private wettable(material: THREE.MeshPhongMaterial, snowMap?: THREE.Texture) {
     material.specular.setScalar(0)
     material.shininess = 60
-    this.weather.shade(material, { snow: 1, wet: 1 })
+    this.weather.shade(material, { snow: 1, wet: 1, snowMap })
     return material
   }
 
@@ -1325,8 +1332,19 @@ export class HdScene {
     const img = ctx.getImageData(0, 0, pw, ph)
     for (let i = 0; i < pw * ph; i++) if (wet[i]) img.data[i * 4 + 3] = 0
     ctx.putImageData(img, 0, 0)
+    if (terrain.snowCover) {
+      const mask = new THREE.DataTexture(terrain.snowCover, pw, ph, THREE.RedFormat)
+      // Canvas 地面贴图从上往下存，DataTexture 默认不翻转，必须与它使用相同的 UV 方向。
+      mask.flipY = true
+      mask.magFilter = THREE.NearestFilter
+      mask.minFilter = THREE.NearestFilter
+      mask.generateMipmaps = false
+      mask.needsUpdate = true
+      this.groundSnowMap = mask
+    }
     const landMaterial = this.wettable(
-      pixelMaterial(new THREE.MeshPhongMaterial({ map: texture(land), alphaTest: 0.5 }))
+      pixelMaterial(new THREE.MeshPhongMaterial({ map: texture(land), alphaTest: 0.5 })),
+      this.groundSnowMap
     )
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, h), landMaterial)
     ground.rotation.x = -Math.PI / 2
@@ -3070,6 +3088,7 @@ export class HdScene {
     cancelAnimationFrame(this.ticker)
     this.abort.abort()
     this.weather.dispose()
+    this.groundSnowMap?.dispose()
     this.props.dispose()
     this.models?.dispose()
     this.pitchControl?.remove()

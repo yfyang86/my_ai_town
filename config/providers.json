@@ -1,6 +1,6 @@
 {
   "active": {
-    "model": "deepseek-chat",
+    "model": "deepseek-flash",
     "provider": "deepseek",
     "resident": "阿树"
   },
