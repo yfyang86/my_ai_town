@@ -55,3 +55,4 @@ An optional ruleset on the storyline mode, built from SRD 5.1. The plan, scope a
 | 17 | Upstream 0.5.0 (`mewamew/my_ai_town`) cherry-picked: Rust-only manager, save and roster performance, trace limits, fixes | merged into `dev` |
 | 18 | Characters are reminded to declare their milestones; Gu Long story replayed three times | merged into `dev` |
 | 19 | Drafted encounters sized to the party, milestone kinds mixed by default, grace period for late declarations | merged into `dev` |
+| 20 | Upstream cherry-picked again: Frostlight mode, music controls, save protection, setup recovery kept by the world | merged into `dev` |

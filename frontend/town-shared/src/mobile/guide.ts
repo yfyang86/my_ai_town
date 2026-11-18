@@ -469,7 +469,11 @@ export function createGuide(d: GuideDeps) {
       ...modelCandidates(
         preset.id,
         providers.find((provider) => provider.id === preset.id)
-      ).map((name) => new Option(name))
+      ).map((name) => {
+        const option = el('option')
+        option.value = name
+        return option
+      })
     )
     const modelLabel = el('label', '', 'guide-field')
     modelLabel.append(el('span', '模型 ID（可输入新的模型名）'), modelInput, modelList)

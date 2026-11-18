@@ -543,7 +543,6 @@ test(
   }
 )
 
-test('home settings save a key only into the data root config, read back only its mask, and cannot delete a service', async () => {
 test('home settings save custom models and a key, read back only the key mask, and cannot delete a service', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'town-models-'))
   const repoConfig = ['config/providers.json', 'config/credentials.json'].map((p) =>
